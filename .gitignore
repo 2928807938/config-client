@@ -43,3 +43,5 @@ logs/
 # Temp files
 tmp/
 temp/
+
+.claude

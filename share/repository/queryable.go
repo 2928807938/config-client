@@ -29,6 +29,25 @@ const (
 	OpIsNotNull Operator = "IS NOT NULL"
 )
 
+// SortOrder 排序方向类型
+type SortOrder string
+
+const (
+	// 排序方向
+	OrderAsc  SortOrder = " ASC"  // 升序
+	OrderDesc SortOrder = " DESC" // 降序
+)
+
+// LogicalOperator 逻辑运算符类型
+type LogicalOperator string
+
+const (
+	// 逻辑运算符
+	LogicAnd LogicalOperator = " AND " // 与
+	LogicOr  LogicalOperator = " OR "  // 或
+	LogicNot LogicalOperator = " NOT " // 非
+)
+
 // Condition 查询条件
 type Condition struct {
 	Field    string      // 要查询的字段名

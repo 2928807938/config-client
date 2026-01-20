@@ -64,6 +64,18 @@ func ApplyConditions(db *gorm.DB, conditions ...*repository.Condition) *gorm.DB 
 	return db
 }
 
+// ApplyOrderBys 将排序规则应用到 GORM 查询（包级函数）
+func ApplyOrderBys(db *gorm.DB, orderBys []repository.OrderBy) *gorm.DB {
+	for _, order := range orderBys {
+		if order.Desc {
+			db = db.Order(order.Field + string(repository.OrderDesc))
+		} else {
+			db = db.Order(order.Field + string(repository.OrderAsc))
+		}
+	}
+	return db
+}
+
 // ApplyCondition 应用单个条件到 GORM 查询（包级函数）
 func ApplyCondition(db *gorm.DB, cond *repository.Condition) *gorm.DB {
 	switch cond.Operator {
@@ -170,13 +182,7 @@ func (b *GormQueryBuilder[T]) build(ctx context.Context) *gorm.DB {
 	}
 
 	// 应用排序
-	for _, order := range b.options.OrderBys {
-		if order.Desc {
-			db = db.Order(order.Field + " DESC")
-		} else {
-			db = db.Order(order.Field + " ASC")
-		}
-	}
+	db = ApplyOrderBys(db, b.options.OrderBys)
 
 	// 应用分页
 	if b.options.LimitVal > 0 {

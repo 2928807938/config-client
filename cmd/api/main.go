@@ -9,7 +9,13 @@ import (
 	"syscall"
 	"time"
 
+	"config-client/api/config-api/converter"
+	configHttp "config-client/api/config-api/http"
+	"config-client/api/config-api/service"
+	domainService "config-client/config/domain/service"
+	infraRepository "config-client/config/infrastructure/repository"
 	"config-client/share/config"
+	"config-client/share/middleware"
 
 	"github.com/cloudwego/hertz/pkg/app"
 	"github.com/cloudwego/hertz/pkg/app/server"
@@ -181,6 +187,9 @@ func initServer() {
 		server.WithHostPorts(fmt.Sprintf(":%d", cfg.Server.Port)),
 	)
 
+	// 注册全局中间件
+	hertzH.Use(middleware.Recovery())
+
 	// 注册路由
 	registerRoutes()
 }
@@ -248,7 +257,86 @@ func registerRoutes() {
 		})
 	})
 
-	// TODO: 在这里添加更多业务路由
+	// 注册配置管理路由
+	registerConfigRoutes()
+	hlog.Info("配置管理路由注册成功")
+
+	// 注册命名空间管理路由
+	registerNamespaceRoutes()
+	hlog.Info("命名空间管理路由注册成功")
+}
+
+// registerConfigRoutes 注册配置管理路由
+func registerConfigRoutes() {
+	// 初始化依赖层级：Repository -> DomainService -> AppService -> Handler
+
+	// 1. 创建仓储层实例
+	configRepo := infraRepository.NewConfigRepository(db)
+
+	// 2. 创建领域服务实例
+	configDomainService := domainService.NewConfigService(configRepo)
+
+	// 3. 创建转换器实例
+	configConverter := converter.NewConfigConverter()
+
+	// 4. 创建应用服务实例
+	configAppService := service.NewConfigAppService(configDomainService, configConverter)
+
+	// 5. 创建HTTP处理器实例
+	configHandler := configHttp.NewConfigHandler(configAppService)
+
+	// 6. 注册路由
+	api := hertzH.Group("/api/v1")
+	{
+		configs := api.Group("/configs")
+		{
+			configs.POST("", configHandler.CreateConfig)      // 创建配置
+			configs.PUT("", configHandler.UpdateConfig)       // 更新配置（ID在请求体中）
+			configs.GET("", configHandler.QueryConfigs)       // 分页查询配置
+			configs.POST("/get", configHandler.GetConfigByID) // 根据ID获取配置（ID在请求体中）
+			configs.DELETE("", configHandler.DeleteConfig)    // 删除配置（ID在请求体中）
+		}
+	}
+}
+
+// registerNamespaceRoutes 注册命名空间管理路由
+func registerNamespaceRoutes() {
+	// 初始化依赖层级：Repository -> DomainService -> AppService -> Handler
+
+	// 1. 创建仓储层实例
+	namespaceRepo := infraRepository.NewNamespaceRepository(db)
+	configRepo := infraRepository.NewConfigRepository(db)
+
+	// 2. 创建领域服务实例
+	namespaceDomainService := domainService.NewNamespaceService(namespaceRepo, configRepo)
+
+	// 3. 创建转换器实例
+	namespaceConverter := converter.NewNamespaceConverter()
+
+	// 4. 创建应用服务实例
+	namespaceAppService := service.NewNamespaceAppService(namespaceDomainService, namespaceConverter, namespaceRepo)
+
+	// 5. 创建HTTP处理器实例
+	namespaceHandler := configHttp.NewNamespaceHandler(namespaceAppService)
+
+	// 6. 注册路由
+	api := hertzH.Group("/api/v1")
+	{
+		namespaces := api.Group("/namespaces")
+		{
+			namespaces.POST("", namespaceHandler.CreateNamespace)                // 创建命名空间
+			namespaces.PUT("", namespaceHandler.UpdateNamespace)                 // 更新命名空间（ID在请求体中）
+			namespaces.DELETE("", namespaceHandler.DeleteNamespace)              // 删除命名空间（ID在请求体中）
+			namespaces.PUT("/activate", namespaceHandler.ActivateNamespace)      // 激活命名空间（ID在请求体中）
+			namespaces.PUT("/deactivate", namespaceHandler.DeactivateNamespace)  // 停用命名空间（ID在请求体中）
+			namespaces.GET("", namespaceHandler.QueryNamespaces)                 // 分页查询命名空间
+			namespaces.POST("/get", namespaceHandler.GetNamespaceByID)           // 根据ID获取命名空间（ID在请求体中）
+			namespaces.GET("/name", namespaceHandler.GetNamespaceByName)         // 根据名称获取命名空间
+			namespaces.GET("/active", namespaceHandler.GetActiveNamespace)       // 获取激活的命名空间
+			namespaces.GET("/all", namespaceHandler.ListAllNamespaces)           // 获取所有命名空间（不分页）
+			namespaces.GET("/active/all", namespaceHandler.ListActiveNamespaces) // 获取所有激活的命名空间（不分页）
+		}
+	}
 }
 
 // gracefulShutdown 优雅关闭

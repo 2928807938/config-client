@@ -13,6 +13,8 @@ type BaseEntity struct {
 	CreatedAt time.Time      `gorm:"autoCreateTime" json:"created_at"`
 	UpdatedAt time.Time      `gorm:"autoUpdateTime" json:"updated_at"`
 	DeletedAt gorm.DeletedAt `gorm:"index" json:"deleted_at,omitempty"`
+	CreatedBy string         `gorm:"type:varchar(100);default:'system'" json:"created_by"`
+	UpdatedBy string         `gorm:"type:varchar(100);default:'system'" json:"updated_by"`
 	Version   int            `gorm:"default:1" json:"version"`
 }
 
@@ -51,6 +53,8 @@ type AuditFields struct {
 	CreatedAt time.Time      `gorm:"autoCreateTime" json:"created_at"`
 	UpdatedAt time.Time      `gorm:"autoUpdateTime" json:"updated_at"`
 	DeletedAt gorm.DeletedAt `gorm:"index" json:"deleted_at,omitempty"`
+	CreatedBy string         `gorm:"type:varchar(100);default:'system'" json:"created_by"`
+	UpdatedBy string         `gorm:"type:varchar(100);default:'system'" json:"updated_by"`
 	Version   int            `gorm:"default:1" json:"version"`
 }
 
