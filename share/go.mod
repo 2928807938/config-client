@@ -3,7 +3,6 @@ module config-client/share
 go 1.24.11
 
 require (
-
 	// Hertz HTTP 框架
 	github.com/cloudwego/hertz v0.9.3
 	gorm.io/driver/mysql v1.5.7
@@ -13,6 +12,8 @@ require (
 	// GORM ORM 框架
 	gorm.io/gorm v1.25.12
 )
+
+require gopkg.in/yaml.v3 v3.0.1
 
 require (
 	github.com/bytedance/go-tagexpr/v2 v2.9.2 // indirect
@@ -35,9 +36,11 @@ require (
 	github.com/jinzhu/inflection v1.0.0 // indirect
 	github.com/jinzhu/now v1.1.5 // indirect
 	github.com/klauspost/cpuid/v2 v2.2.4 // indirect
+	github.com/kr/text v0.2.0 // indirect
 	github.com/mattn/go-sqlite3 v1.14.22 // indirect
 	github.com/nyaruka/phonenumbers v1.0.55 // indirect
 	github.com/pmezard/go-difflib v1.0.1-0.20181226105442-5d4384ee4fb2 // indirect
+	github.com/rogpeppe/go-internal v1.6.1 // indirect
 	github.com/tidwall/gjson v1.17.3 // indirect
 	github.com/tidwall/match v1.1.1 // indirect
 	github.com/tidwall/pretty v1.2.0 // indirect
