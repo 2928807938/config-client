@@ -1,0 +1,53 @@
+# 配置中心数据库配置
+database:
+  # 数据库类型
+  driver: postgres
+  # 数据库连接信息
+  host: localhost
+  port: 5432
+  database: config_center
+  username: postgres
+  password: postgres
+  # 连接池配置
+  max_open_conns: 100
+  max_idle_conns: 10
+  conn_max_lifetime: 3600  # 秒
+  # 日志配置
+  log_level: info  # silent, error, warn, info
+  # 是否启用自动迁移
+  auto_migrate: false
+
+# Redis 配置
+redis:
+  # Redis 连接信息
+  host: localhost
+  port: 6379
+  password: ""  # 默认无密码
+  db: 0  # 数据库索引
+  # 连接池配置
+  pool_size: 100
+  min_idle_conns: 10
+  # 超时配置
+  dial_timeout: 5  # 秒
+  read_timeout: 3  # 秒
+  write_timeout: 3  # 秒
+  pool_timeout: 4  # 秒
+  # 连接保活
+  idle_timeout: 300  # 秒
+  max_conn_age: 0  # 0表示不限制
+
+# 服务配置
+server:
+  # HTTP服务端口
+  port: 8080
+  # 运行模式: debug, release
+  mode: debug
+
+# 日志配置
+log:
+  # 日志级别: debug, info, warn, error
+  level: debug
+  # 日志格式: json, text
+  format: text
+  # 日志输出: stdout, stderr, file
+  output: stdout
