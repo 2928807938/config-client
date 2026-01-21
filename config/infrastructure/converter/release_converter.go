@@ -13,7 +13,7 @@ func NewReleaseConverter() *ReleaseConverter {
 	return &ReleaseConverter{}
 }
 
-// ToDO 将持久化对象转换为领域实体（PO -> DO）
+// 将持久化对象转换为领域实体（PO -> DO）
 func (c *ReleaseConverter) ToDO(po *infraEntity.ReleasePO) *domainEntity.Release {
 	if po == nil {
 		return nil

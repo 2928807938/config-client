@@ -13,7 +13,7 @@ func NewConfigConverter() *ConfigConverter {
 	return &ConfigConverter{}
 }
 
-// ToDO 将持久化对象转换为领域实体（PO -> DO）
+// 将持久化对象转换为领域实体（PO -> DO）
 func (c *ConfigConverter) ToDO(po *infraEntity.ConfigPO) *domainEntity.Config {
 	if po == nil {
 		return nil

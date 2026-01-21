@@ -15,7 +15,7 @@ func NewChangeHistoryConverter() *ChangeHistoryConverter {
 	return &ChangeHistoryConverter{}
 }
 
-// ToDO 将持久化对象转换为领域实体（PO -> DO）
+// 将持久化对象转换为领域实体（PO -> DO）
 func (c *ChangeHistoryConverter) ToDO(po *infraEntity.ChangeHistoryPO) *domainEntity.ChangeHistory {
 	if po == nil {
 		return nil

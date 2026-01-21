@@ -1,6 +1,8 @@
 package configsdk
 
 import (
+	"config-client/share/config-client/listener"
+	"config-client/share/config-client/listener/impl"
 	"context"
 	"fmt"
 )
@@ -16,16 +18,16 @@ type Watcher interface {
 
 // httpWatcher HTTP 长轮询监听器包装
 type httpWatcher struct {
-	serverURL      string
-	namespaceID    int
-	pollingTimeout int
-	// 这里应该引用原来的 HTTPPollingWatcher
-	// 为了演示，暂时简化
+	underlying  *impl.HTTPPollingWatcher // 底层 HTTP 长轮询监听器
+	namespaceID int
+	namespace   string
 }
 
 // redisWatcher Redis 订阅监听器包装
 type redisWatcher struct {
-	// 引用原来的 RedisWatcher
+	underlying  *impl.RedisWatcher // 底层 Redis 监听器
+	namespaceID int
+	namespace   string
 }
 
 // createWatcherFromOptions 根据选项创建监听器
@@ -35,17 +37,25 @@ func createWatcherFromOptions(opts *Options) (Watcher, error) {
 		if opts.ServerURL == "" {
 			return nil, fmt.Errorf("HTTP 模式需要配置 ServerURL")
 		}
+		// 创建底层 HTTP 长轮询监听器
+		underlying := impl.NewHTTPPollingWatcher(opts.ServerURL, opts.PollingTimeout)
 		return &httpWatcher{
-			serverURL:      opts.ServerURL,
-			namespaceID:    opts.NamespaceID,
-			pollingTimeout: int(opts.PollingTimeout.Seconds()),
+			underlying:  underlying,
+			namespaceID: opts.NamespaceID,
+			namespace:   opts.Namespace,
 		}, nil
 
 	case WatcherTypeRedis:
 		if opts.RedisClient == nil {
 			return nil, fmt.Errorf("Redis 模式需要配置 RedisClient")
 		}
-		return &redisWatcher{}, nil
+		// 创建底层 Redis 监听器
+		underlying := impl.NewRedisWatcher(opts.RedisClient)
+		return &redisWatcher{
+			underlying:  underlying,
+			namespaceID: opts.NamespaceID,
+			namespace:   opts.Namespace,
+		}, nil
 
 	default:
 		return nil, fmt.Errorf("不支持的监听器类型: %s", opts.WatcherType)
@@ -54,52 +64,98 @@ func createWatcherFromOptions(opts *Options) (Watcher, error) {
 
 // Start 启动 HTTP 监听器
 func (w *httpWatcher) Start(ctx context.Context) error {
-	// TODO: 实际应该调用原来的 HTTPPollingWatcher
-	return nil
+	return w.underlying.Start(ctx)
 }
 
 // Stop 停止 HTTP 监听器
 func (w *httpWatcher) Stop() error {
-	return nil
+	return w.underlying.Stop()
 }
 
 // Watch 监听配置
 func (w *httpWatcher) Watch(keys []string, callback func(key, value, version string)) error {
-	// TODO: 包装调用原来的监听器
-	return nil
+	// 将简化的 key 列表转换为底层的 WatchKey 列表
+	watchKeys := make([]*listener.WatchKey, len(keys))
+	for i, key := range keys {
+		watchKeys[i] = &listener.WatchKey{
+			NamespaceID: w.namespaceID,
+			Namespace:   w.namespace,
+			Key:         key,
+			Version:     "", // 初始版本为空
+		}
+	}
+
+	// 将简化的回调转换为底层的回调
+	underlyingCallback := func(event *listener.ConfigChangeEvent) {
+		callback(event.ConfigKey, event.Value, event.Version)
+	}
+
+	return w.underlying.Watch(watchKeys, underlyingCallback)
 }
 
 // Unwatch 取消监听
 func (w *httpWatcher) Unwatch(keys []string) error {
-	return nil
+	watchKeys := make([]*listener.WatchKey, len(keys))
+	for i, key := range keys {
+		watchKeys[i] = &listener.WatchKey{
+			NamespaceID: w.namespaceID,
+			Namespace:   w.namespace,
+			Key:         key,
+		}
+	}
+	return w.underlying.Unwatch(watchKeys)
 }
 
 // IsRunning 是否运行中
 func (w *httpWatcher) IsRunning() bool {
-	return false
+	return w.underlying.IsRunning()
 }
 
 // Start 启动 Redis 监听器
 func (w *redisWatcher) Start(ctx context.Context) error {
-	return nil
+	return w.underlying.Start(ctx)
 }
 
 // Stop 停止 Redis 监听器
 func (w *redisWatcher) Stop() error {
-	return nil
+	return w.underlying.Stop()
 }
 
 // Watch 监听配置
 func (w *redisWatcher) Watch(keys []string, callback func(key, value, version string)) error {
-	return nil
+	// 将简化的 key 列表转换为底层的 WatchKey 列表
+	watchKeys := make([]*listener.WatchKey, len(keys))
+	for i, key := range keys {
+		watchKeys[i] = &listener.WatchKey{
+			NamespaceID: w.namespaceID,
+			Namespace:   w.namespace,
+			Key:         key,
+			Version:     "", // 初始版本为空
+		}
+	}
+
+	// 将简化的回调转换为底层的回调
+	underlyingCallback := func(event *listener.ConfigChangeEvent) {
+		callback(event.ConfigKey, event.Value, event.Version)
+	}
+
+	return w.underlying.Watch(watchKeys, underlyingCallback)
 }
 
 // Unwatch 取消监听
 func (w *redisWatcher) Unwatch(keys []string) error {
-	return nil
+	watchKeys := make([]*listener.WatchKey, len(keys))
+	for i, key := range keys {
+		watchKeys[i] = &listener.WatchKey{
+			NamespaceID: w.namespaceID,
+			Namespace:   w.namespace,
+			Key:         key,
+		}
+	}
+	return w.underlying.Unwatch(watchKeys)
 }
 
 // IsRunning 是否运行中
 func (w *redisWatcher) IsRunning() bool {
-	return false
+	return w.underlying.IsRunning()
 }

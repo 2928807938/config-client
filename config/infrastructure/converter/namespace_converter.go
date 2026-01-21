@@ -13,7 +13,7 @@ func NewNamespaceConverter() *NamespaceConverter {
 	return &NamespaceConverter{}
 }
 
-// ToDO 将持久化对象转换为领域实体（PO -> DO）
+// 将持久化对象转换为领域实体（PO -> DO）
 func (c *NamespaceConverter) ToDO(po *infraEntity.NamespacePO) *domainEntity.Namespace {
 	if po == nil {
 		return nil
