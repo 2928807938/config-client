@@ -67,9 +67,9 @@ func (r *SubscriptionRepositoryImpl) GetByClientAndNamespace(
 ) (*entity.Subscription, error) {
 	var po infraEntity.SubscriptionPO
 	db := r.db.WithContext(ctx)
-	db = queryutil.WhereEq(db, r.fields.Of(&r.model.ClientID).GetColumnName(), clientID)
-	db = queryutil.WhereEq(db, r.fields.Of(&r.model.NamespaceID).GetColumnName(), namespaceID)
-	db = queryutil.WhereEq(db, r.fields.Of(&r.model.Environment).GetColumnName(), environment)
+	db = queryutil.WhereEq(db, r.fields.Get("ClientID").GetColumnName(), clientID)
+	db = queryutil.WhereEq(db, r.fields.Get("NamespaceID").GetColumnName(), namespaceID)
+	db = queryutil.WhereEq(db, r.fields.Get("Environment").GetColumnName(), environment)
 	err := db.First(&po).Error
 
 	if err != nil {
@@ -90,9 +90,9 @@ func (r *SubscriptionRepositoryImpl) FindActiveSubscriptions(
 ) ([]*entity.Subscription, error) {
 	var pos []*infraEntity.SubscriptionPO
 	db := r.db.WithContext(ctx)
-	db = queryutil.WhereEq(db, r.fields.Of(&r.model.NamespaceID).GetColumnName(), namespaceID)
-	db = queryutil.WhereEq(db, r.fields.Of(&r.model.Environment).GetColumnName(), environment)
-	db = queryutil.WhereEq(db, r.fields.Of(&r.model.IsActive).GetColumnName(), true)
+	db = queryutil.WhereEq(db, r.fields.Get("NamespaceID").GetColumnName(), namespaceID)
+	db = queryutil.WhereEq(db, r.fields.Get("Environment").GetColumnName(), environment)
+	db = queryutil.WhereEq(db, r.fields.Get("IsActive").GetColumnName(), true)
 	err := db.Find(&pos).Error
 
 	if err != nil {
@@ -106,7 +106,7 @@ func (r *SubscriptionRepositoryImpl) FindActiveSubscriptions(
 func (r *SubscriptionRepositoryImpl) FindAllActiveSubscriptions(ctx context.Context) ([]*entity.Subscription, error) {
 	var pos []*infraEntity.SubscriptionPO
 	db := r.db.WithContext(ctx)
-	db = queryutil.WhereEq(db, r.fields.Of(&r.model.IsActive).GetColumnName(), true)
+	db = queryutil.WhereEq(db, r.fields.Get("IsActive").GetColumnName(), true)
 	err := db.Find(&pos).Error
 
 	if err != nil {
@@ -120,31 +120,31 @@ func (r *SubscriptionRepositoryImpl) FindAllActiveSubscriptions(ctx context.Cont
 func (r *SubscriptionRepositoryImpl) UpdateHeartbeat(ctx context.Context, id int) error {
 	now := time.Now()
 	db := r.db.WithContext(ctx).Model(&infraEntity.SubscriptionPO{})
-	db = queryutil.WhereEq(db, r.fields.Of(&r.model.ID).GetColumnName(), id)
+	db = queryutil.WhereEq(db, r.fields.Get("ID").GetColumnName(), id)
 	return db.Updates(map[string]interface{}{
-		r.fields.Of(&r.model.LastHeartbeatAt).GetColumnName(): now,
-		r.fields.Of(&r.model.HeartbeatCount).GetColumnName():  gorm.Expr(r.fields.Of(&r.model.HeartbeatCount).GetColumnName() + " + 1"),
-		r.fields.Of(&r.model.UpdatedAt).GetColumnName():       now,
+		r.fields.Get("LastHeartbeatAt").GetColumnName(): now,
+		r.fields.Get("HeartbeatCount").GetColumnName():  gorm.Expr(r.fields.Get("HeartbeatCount").GetColumnName() + " + 1"),
+		r.fields.Get("UpdatedAt").GetColumnName():       now,
 	}).Error
 }
 
 // IncrementPollCount 增加轮询计数
 func (r *SubscriptionRepositoryImpl) IncrementPollCount(ctx context.Context, id int) error {
 	db := r.db.WithContext(ctx).Model(&infraEntity.SubscriptionPO{})
-	db = queryutil.WhereEq(db, r.fields.Of(&r.model.ID).GetColumnName(), id)
+	db = queryutil.WhereEq(db, r.fields.Get("ID").GetColumnName(), id)
 	return db.Updates(map[string]interface{}{
-		r.fields.Of(&r.model.PollCount).GetColumnName(): gorm.Expr(r.fields.Of(&r.model.PollCount).GetColumnName() + " + 1"),
-		r.fields.Of(&r.model.UpdatedAt).GetColumnName(): time.Now(),
+		r.fields.Get("PollCount").GetColumnName(): gorm.Expr(r.fields.Get("PollCount").GetColumnName() + " + 1"),
+		r.fields.Get("UpdatedAt").GetColumnName(): time.Now(),
 	}).Error
 }
 
 // IncrementChangeCount 增加变更计数
 func (r *SubscriptionRepositoryImpl) IncrementChangeCount(ctx context.Context, id int) error {
 	db := r.db.WithContext(ctx).Model(&infraEntity.SubscriptionPO{})
-	db = queryutil.WhereEq(db, r.fields.Of(&r.model.ID).GetColumnName(), id)
+	db = queryutil.WhereEq(db, r.fields.Get("ID").GetColumnName(), id)
 	return db.Updates(map[string]interface{}{
-		r.fields.Of(&r.model.ChangeCount).GetColumnName(): gorm.Expr(r.fields.Of(&r.model.ChangeCount).GetColumnName() + " + 1"),
-		r.fields.Of(&r.model.UpdatedAt).GetColumnName():   time.Now(),
+		r.fields.Get("ChangeCount").GetColumnName(): gorm.Expr(r.fields.Get("ChangeCount").GetColumnName() + " + 1"),
+		r.fields.Get("UpdatedAt").GetColumnName():   time.Now(),
 	}).Error
 }
 
@@ -152,22 +152,22 @@ func (r *SubscriptionRepositoryImpl) IncrementChangeCount(ctx context.Context, i
 func (r *SubscriptionRepositoryImpl) Deactivate(ctx context.Context, id int) error {
 	now := time.Now()
 	db := r.db.WithContext(ctx).Model(&infraEntity.SubscriptionPO{})
-	db = queryutil.WhereEq(db, r.fields.Of(&r.model.ID).GetColumnName(), id)
+	db = queryutil.WhereEq(db, r.fields.Get("ID").GetColumnName(), id)
 	return db.Updates(map[string]interface{}{
-		r.fields.Of(&r.model.IsActive).GetColumnName():       false,
-		r.fields.Of(&r.model.UnsubscribedAt).GetColumnName(): now,
-		r.fields.Of(&r.model.UpdatedAt).GetColumnName():      now,
+		r.fields.Get("IsActive").GetColumnName():       false,
+		r.fields.Get("UnsubscribedAt").GetColumnName(): now,
+		r.fields.Get("UpdatedAt").GetColumnName():      now,
 	}).Error
 }
 
 // CleanExpiredSubscriptions 清理过期订阅
 func (r *SubscriptionRepositoryImpl) CleanExpiredSubscriptions(ctx context.Context, expireTime time.Time) (int64, error) {
 	db := r.db.WithContext(ctx).Model(&infraEntity.SubscriptionPO{})
-	db = queryutil.WhereEq(db, r.fields.Of(&r.model.IsActive).GetColumnName(), true)
-	db = queryutil.WhereLt(db, r.fields.Of(&r.model.LastHeartbeatAt).GetColumnName(), expireTime)
+	db = queryutil.WhereEq(db, r.fields.Get("IsActive").GetColumnName(), true)
+	db = queryutil.WhereLt(db, r.fields.Get("LastHeartbeatAt").GetColumnName(), expireTime)
 	result := db.Updates(map[string]interface{}{
-		r.fields.Of(&r.model.IsActive).GetColumnName():  false,
-		r.fields.Of(&r.model.UpdatedAt).GetColumnName(): time.Now(),
+		r.fields.Get("IsActive").GetColumnName():  false,
+		r.fields.Get("UpdatedAt").GetColumnName(): time.Now(),
 	})
 
 	if result.Error != nil {

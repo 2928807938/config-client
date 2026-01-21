@@ -55,8 +55,8 @@ func (r *ChangeHistoryRepositoryImpl) BatchSave(ctx context.Context, histories [
 func (r *ChangeHistoryRepositoryImpl) FindByConfigID(ctx context.Context, configID int, limit int) ([]*domainEntity.ChangeHistory, error) {
 	var pos []*infraEntity.ChangeHistoryPO
 	db := r.db.WithContext(ctx)
-	db = queryutil.WhereEq(db, r.fields.Of(&r.model.ConfigID).GetColumnName(), configID)
-	db = queryutil.OrderByDesc(db, r.fields.Of(&r.model.CreatedAt).GetColumnName())
+	db = queryutil.WhereEq(db, r.fields.Get("ConfigID").GetColumnName(), configID)
+	db = queryutil.OrderByDesc(db, r.fields.Get("CreatedAt").GetColumnName())
 
 	if limit > 0 {
 		db = db.Limit(limit)
@@ -74,9 +74,9 @@ func (r *ChangeHistoryRepositoryImpl) FindByConfigID(ctx context.Context, config
 func (r *ChangeHistoryRepositoryImpl) FindByNamespaceAndKey(ctx context.Context, namespaceID int, configKey string, limit int) ([]*domainEntity.ChangeHistory, error) {
 	var pos []*infraEntity.ChangeHistoryPO
 	db := r.db.WithContext(ctx)
-	db = queryutil.WhereEq(db, r.fields.Of(&r.model.NamespaceID).GetColumnName(), namespaceID)
-	db = queryutil.WhereEq(db, r.fields.Of(&r.model.ConfigKey).GetColumnName(), configKey)
-	db = queryutil.OrderByDesc(db, r.fields.Of(&r.model.CreatedAt).GetColumnName())
+	db = queryutil.WhereEq(db, r.fields.Get("NamespaceID").GetColumnName(), namespaceID)
+	db = queryutil.WhereEq(db, r.fields.Get("ConfigKey").GetColumnName(), configKey)
+	db = queryutil.OrderByDesc(db, r.fields.Get("CreatedAt").GetColumnName())
 
 	if limit > 0 {
 		db = db.Limit(limit)
@@ -107,8 +107,8 @@ func (r *ChangeHistoryRepositoryImpl) FindByID(ctx context.Context, id int) (*do
 func (r *ChangeHistoryRepositoryImpl) FindLatestByConfigID(ctx context.Context, configID int) (*domainEntity.ChangeHistory, error) {
 	var po infraEntity.ChangeHistoryPO
 	db := r.db.WithContext(ctx)
-	db = queryutil.WhereEq(db, r.fields.Of(&r.model.ConfigID).GetColumnName(), configID)
-	db = queryutil.OrderByDesc(db, r.fields.Of(&r.model.CreatedAt).GetColumnName())
+	db = queryutil.WhereEq(db, r.fields.Get("ConfigID").GetColumnName(), configID)
+	db = queryutil.OrderByDesc(db, r.fields.Get("CreatedAt").GetColumnName())
 	err := db.First(&po).Error
 
 	if err != nil {
@@ -123,7 +123,7 @@ func (r *ChangeHistoryRepositoryImpl) FindLatestByConfigID(ctx context.Context, 
 // FindByOperator 查询指定操作人的变更记录
 func (r *ChangeHistoryRepositoryImpl) FindByOperator(ctx context.Context, operator string, page, size int) (*shareRepo.PageResult[*domainEntity.ChangeHistory], error) {
 	db := r.db.WithContext(ctx).Model(&infraEntity.ChangeHistoryPO{})
-	db = queryutil.WhereEq(db, r.fields.Of(&r.model.Operator).GetColumnName(), operator)
+	db = queryutil.WhereEq(db, r.fields.Get("Operator").GetColumnName(), operator)
 
 	// 统计总数
 	var total int64
@@ -134,7 +134,7 @@ func (r *ChangeHistoryRepositoryImpl) FindByOperator(ctx context.Context, operat
 	// 应用分页
 	offset := (page - 1) * size
 	db = db.Offset(offset).Limit(size)
-	db = queryutil.OrderByDesc(db, r.fields.Of(&r.model.CreatedAt).GetColumnName())
+	db = queryutil.OrderByDesc(db, r.fields.Get("CreatedAt").GetColumnName())
 
 	// 查询数据
 	var pos []*infraEntity.ChangeHistoryPO
@@ -152,30 +152,30 @@ func (r *ChangeHistoryRepositoryImpl) QueryByParams(ctx context.Context, params 
 
 	// 构建查询条件
 	if params.ConfigID != nil {
-		db = queryutil.WhereEq(db, r.fields.Of(&r.model.ConfigID).GetColumnName(), *params.ConfigID)
+		db = queryutil.WhereEq(db, r.fields.Get("ConfigID").GetColumnName(), *params.ConfigID)
 	}
 	if params.NamespaceID != nil {
-		db = queryutil.WhereEq(db, r.fields.Of(&r.model.NamespaceID).GetColumnName(), *params.NamespaceID)
+		db = queryutil.WhereEq(db, r.fields.Get("NamespaceID").GetColumnName(), *params.NamespaceID)
 	}
 	if params.ConfigKey != nil && *params.ConfigKey != "" {
-		db = queryutil.WhereLike(db, r.fields.Of(&r.model.ConfigKey).GetColumnName(), "%"+*params.ConfigKey+"%")
+		db = queryutil.WhereLike(db, r.fields.Get("ConfigKey").GetColumnName(), "%"+*params.ConfigKey+"%")
 	}
 	if params.Operation != nil && *params.Operation != "" {
-		db = queryutil.WhereEq(db, r.fields.Of(&r.model.Operation).GetColumnName(), *params.Operation)
+		db = queryutil.WhereEq(db, r.fields.Get("Operation").GetColumnName(), *params.Operation)
 	}
 	if params.Operator != nil && *params.Operator != "" {
-		db = queryutil.WhereLike(db, r.fields.Of(&r.model.Operator).GetColumnName(), "%"+*params.Operator+"%")
+		db = queryutil.WhereLike(db, r.fields.Get("Operator").GetColumnName(), "%"+*params.Operator+"%")
 	}
 	if params.StartTime != nil {
 		startTime, err := time.Parse("2006-01-02 15:04:05", *params.StartTime)
 		if err == nil {
-			db = queryutil.WhereGte(db, r.fields.Of(&r.model.CreatedAt).GetColumnName(), startTime)
+			db = queryutil.WhereGte(db, r.fields.Get("CreatedAt").GetColumnName(), startTime)
 		}
 	}
 	if params.EndTime != nil {
 		endTime, err := time.Parse("2006-01-02 15:04:05", *params.EndTime)
 		if err == nil {
-			db = queryutil.WhereLte(db, r.fields.Of(&r.model.CreatedAt).GetColumnName(), endTime)
+			db = queryutil.WhereLte(db, r.fields.Get("CreatedAt").GetColumnName(), endTime)
 		}
 	}
 
@@ -186,7 +186,7 @@ func (r *ChangeHistoryRepositoryImpl) QueryByParams(ctx context.Context, params 
 	}
 
 	// 默认按时间倒序
-	db = queryutil.OrderByDesc(db, r.fields.Of(&r.model.CreatedAt).GetColumnName())
+	db = queryutil.OrderByDesc(db, r.fields.Get("CreatedAt").GetColumnName())
 
 	// 应用分页
 	offset := (params.Page - 1) * params.Size
@@ -235,7 +235,7 @@ func (r *ChangeHistoryRepositoryImpl) Delete(ctx context.Context, id int) error 
 func (r *ChangeHistoryRepositoryImpl) List(ctx context.Context) ([]*domainEntity.ChangeHistory, error) {
 	var pos []*infraEntity.ChangeHistoryPO
 	db := r.db.WithContext(ctx)
-	db = queryutil.OrderByDesc(db, r.fields.Of(&r.model.CreatedAt).GetColumnName())
+	db = queryutil.OrderByDesc(db, r.fields.Get("CreatedAt").GetColumnName())
 	err := db.Find(&pos).Error
 	if err != nil {
 		return nil, err
@@ -258,7 +258,7 @@ func (r *ChangeHistoryRepositoryImpl) Page(ctx context.Context, request *shareRe
 func (r *ChangeHistoryRepositoryImpl) CountByConfigID(ctx context.Context, configID int) (int64, error) {
 	var count int64
 	db := r.db.WithContext(ctx).Model(&infraEntity.ChangeHistoryPO{})
-	db = queryutil.WhereEq(db, r.fields.Of(&r.model.ConfigID).GetColumnName(), configID)
+	db = queryutil.WhereEq(db, r.fields.Get("ConfigID").GetColumnName(), configID)
 	err := db.Count(&count).Error
 	return count, err
 }
@@ -267,7 +267,7 @@ func (r *ChangeHistoryRepositoryImpl) CountByConfigID(ctx context.Context, confi
 func (r *ChangeHistoryRepositoryImpl) CountByOperation(ctx context.Context, operation string) (int64, error) {
 	var count int64
 	db := r.db.WithContext(ctx).Model(&infraEntity.ChangeHistoryPO{})
-	db = queryutil.WhereEq(db, r.fields.Of(&r.model.Operation).GetColumnName(), operation)
+	db = queryutil.WhereEq(db, r.fields.Get("Operation").GetColumnName(), operation)
 	err := db.Count(&count).Error
 	return count, err
 }
@@ -279,12 +279,12 @@ func (r *ChangeHistoryRepositoryImpl) CountByTimeRange(ctx context.Context, star
 
 	if startTime != "" {
 		if t, err := time.Parse("2006-01-02 15:04:05", startTime); err == nil {
-			db = queryutil.WhereGte(db, r.fields.Of(&r.model.CreatedAt).GetColumnName(), t)
+			db = queryutil.WhereGte(db, r.fields.Get("CreatedAt").GetColumnName(), t)
 		}
 	}
 	if endTime != "" {
 		if t, err := time.Parse("2006-01-02 15:04:05", endTime); err == nil {
-			db = queryutil.WhereLte(db, r.fields.Of(&r.model.CreatedAt).GetColumnName(), t)
+			db = queryutil.WhereLte(db, r.fields.Get("CreatedAt").GetColumnName(), t)
 		}
 	}
 

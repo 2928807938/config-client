@@ -8,4 +8,5 @@ use (
 	./config/infrastructure
 	./share
 	./sdk/config-client-go
+	./text
 )

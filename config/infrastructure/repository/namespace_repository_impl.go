@@ -82,7 +82,7 @@ func (r *NamespaceRepositoryImpl) Delete(ctx context.Context, id int) error {
 func (r *NamespaceRepositoryImpl) List(ctx context.Context) ([]*domainEntity.Namespace, error) {
 	var pos []*infraEntity.NamespacePO
 	db := r.db.WithContext(ctx)
-	db = queryutil.OrderByDesc(db, r.fields.Of(&r.model.CreatedAt).GetColumnName())
+	db = queryutil.OrderByDesc(db, r.fields.Get("CreatedAt").GetColumnName())
 	err := db.Find(&pos).Error
 	if err != nil {
 		return nil, err
@@ -125,10 +125,10 @@ func (r *NamespaceRepositoryImpl) Query(ctx context.Context, params *repository.
 
 	// 应用查询条件
 	if params.Name != nil && *params.Name != "" {
-		db = queryutil.WhereLike(db, r.fields.Of(&r.model.Name).GetColumnName(), *params.Name)
+		db = queryutil.WhereLike(db, r.fields.Get("Name").GetColumnName(), *params.Name)
 	}
 	if params.IsActive != nil {
-		db = queryutil.WhereEq(db, r.fields.Of(&r.model.IsActive).GetColumnName(), *params.IsActive)
+		db = queryutil.WhereEq(db, r.fields.Get("IsActive").GetColumnName(), *params.IsActive)
 	}
 
 	// 统计总数
@@ -142,7 +142,7 @@ func (r *NamespaceRepositoryImpl) Query(ctx context.Context, params *repository.
 		db = db.Order(params.OrderBy)
 	} else {
 		// 默认按创建时间降序
-		db = queryutil.OrderByDesc(db, r.fields.Of(&r.model.CreatedAt).GetColumnName())
+		db = queryutil.OrderByDesc(db, r.fields.Get("CreatedAt").GetColumnName())
 	}
 
 	// 应用分页
@@ -171,7 +171,7 @@ func (r *NamespaceRepositoryImpl) Query(ctx context.Context, params *repository.
 func (r *NamespaceRepositoryImpl) FindByName(ctx context.Context, name string) (*domainEntity.Namespace, error) {
 	var po infraEntity.NamespacePO
 	db := r.db.WithContext(ctx)
-	db = queryutil.WhereEq(db, r.fields.Of(&r.model.Name).GetColumnName(), name)
+	db = queryutil.WhereEq(db, r.fields.Get("Name").GetColumnName(), name)
 	err := db.First(&po).Error
 
 	if err != nil {
@@ -188,8 +188,8 @@ func (r *NamespaceRepositoryImpl) FindByName(ctx context.Context, name string) (
 func (r *NamespaceRepositoryImpl) FindAllActive(ctx context.Context) ([]*domainEntity.Namespace, error) {
 	var pos []*infraEntity.NamespacePO
 	db := r.db.WithContext(ctx)
-	db = queryutil.WhereEq(db, r.fields.Of(&r.model.IsActive).GetColumnName(), true)
-	db = queryutil.OrderByDesc(db, r.fields.Of(&r.model.CreatedAt).GetColumnName())
+	db = queryutil.WhereEq(db, r.fields.Get("IsActive").GetColumnName(), true)
+	db = queryutil.OrderByDesc(db, r.fields.Get("CreatedAt").GetColumnName())
 	err := db.Find(&pos).Error
 
 	if err != nil {
@@ -237,7 +237,7 @@ func (r *NamespaceRepositoryImpl) PageWithConditions(ctx context.Context, req *s
 func (r *NamespaceRepositoryImpl) ExistsByName(ctx context.Context, name string) (bool, error) {
 	var count int64
 	db := r.db.WithContext(ctx).Model(&infraEntity.NamespacePO{})
-	db = queryutil.WhereEq(db, r.fields.Of(&r.model.Name).GetColumnName(), name)
+	db = queryutil.WhereEq(db, r.fields.Get("Name").GetColumnName(), name)
 	err := db.Count(&count).Error
 
 	if err != nil {
@@ -251,7 +251,7 @@ func (r *NamespaceRepositoryImpl) ExistsByName(ctx context.Context, name string)
 func (r *NamespaceRepositoryImpl) CountActive(ctx context.Context) (int64, error) {
 	var count int64
 	db := r.db.WithContext(ctx).Model(&infraEntity.NamespacePO{})
-	db = queryutil.WhereEq(db, r.fields.Of(&r.model.IsActive).GetColumnName(), true)
+	db = queryutil.WhereEq(db, r.fields.Get("IsActive").GetColumnName(), true)
 	err := db.Count(&count).Error
 
 	if err != nil {

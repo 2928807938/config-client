@@ -121,6 +121,22 @@ func (ef *EntityFields[T]) Of(fieldPtr interface{}) *FieldQuery {
 	panic("field not found in entity")
 }
 
+// Get 通过字段名获取 FieldQuery(类型安全的字符串查询)
+// 使用示例:
+//
+//	fields := queryutil.Lambda[infraEntity.ConfigPO]()
+//	condition := fields.Get("NamespaceID").Eq(1)
+func (ef *EntityFields[T]) Get(fieldName string) *FieldQuery {
+	ef.mu.RLock()
+	defer ef.mu.RUnlock()
+
+	if fq, ok := ef.fields[fieldName]; ok {
+		return fq
+	}
+
+	panic("field " + fieldName + " not found in entity")
+}
+
 // toSnakeCase 将驼峰命名转换为下划线命名
 func toSnakeCase(s string) string {
 	var result strings.Builder

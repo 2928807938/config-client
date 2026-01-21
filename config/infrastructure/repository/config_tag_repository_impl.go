@@ -73,8 +73,8 @@ func (r *configTagRepositoryImpl) Delete(ctx context.Context, id int) error {
 // DeleteByConfigIDAndTagKey 根据配置ID和标签键删除标签
 func (r *configTagRepositoryImpl) DeleteByConfigIDAndTagKey(ctx context.Context, configID int, tagKey string) error {
 	db := r.db.WithContext(ctx)
-	db = queryutil.WhereEq(db, r.fields.Of(&r.model.ConfigID).GetColumnName(), configID)
-	db = queryutil.WhereEq(db, r.fields.Of(&r.model.TagKey).GetColumnName(), tagKey)
+	db = queryutil.WhereEq(db, r.fields.Get("ConfigID").GetColumnName(), configID)
+	db = queryutil.WhereEq(db, r.fields.Get("TagKey").GetColumnName(), tagKey)
 	result := db.Delete(&infraEntity.ConfigTagPO{})
 
 	if result.Error != nil {
@@ -86,7 +86,7 @@ func (r *configTagRepositoryImpl) DeleteByConfigIDAndTagKey(ctx context.Context,
 // DeleteByConfigID 删除某个配置的所有标签
 func (r *configTagRepositoryImpl) DeleteByConfigID(ctx context.Context, configID int) error {
 	db := r.db.WithContext(ctx)
-	db = queryutil.WhereEq(db, r.fields.Of(&r.model.ConfigID).GetColumnName(), configID)
+	db = queryutil.WhereEq(db, r.fields.Get("ConfigID").GetColumnName(), configID)
 	result := db.Delete(&infraEntity.ConfigTagPO{})
 
 	if result.Error != nil {
@@ -99,9 +99,9 @@ func (r *configTagRepositoryImpl) DeleteByConfigID(ctx context.Context, configID
 func (r *configTagRepositoryImpl) FindByConfigID(ctx context.Context, configID int) ([]*entity.ConfigTag, error) {
 	var poList []*infraEntity.ConfigTagPO
 	db := r.db.WithContext(ctx)
-	db = queryutil.WhereEq(db, r.fields.Of(&r.model.ConfigID).GetColumnName(), configID)
-	db = queryutil.OrderBy(db, r.fields.Of(&r.model.TagKey).GetColumnName())
-	db = queryutil.OrderBy(db, r.fields.Of(&r.model.TagValue).GetColumnName())
+	db = queryutil.WhereEq(db, r.fields.Get("ConfigID").GetColumnName(), configID)
+	db = queryutil.OrderBy(db, r.fields.Get("TagKey").GetColumnName())
+	db = queryutil.OrderBy(db, r.fields.Get("TagValue").GetColumnName())
 	err := db.Find(&poList).Error
 
 	if err != nil {
@@ -115,7 +115,7 @@ func (r *configTagRepositoryImpl) FindByConfigID(ctx context.Context, configID i
 func (r *configTagRepositoryImpl) FindByTagKey(ctx context.Context, tagKey string) ([]*entity.ConfigTag, error) {
 	var poList []*infraEntity.ConfigTagPO
 	db := r.db.WithContext(ctx)
-	db = queryutil.WhereEq(db, r.fields.Of(&r.model.TagKey).GetColumnName(), tagKey)
+	db = queryutil.WhereEq(db, r.fields.Get("TagKey").GetColumnName(), tagKey)
 	err := db.Find(&poList).Error
 
 	if err != nil {
@@ -129,8 +129,8 @@ func (r *configTagRepositoryImpl) FindByTagKey(ctx context.Context, tagKey strin
 func (r *configTagRepositoryImpl) FindByTagKeyValue(ctx context.Context, tagKey, tagValue string) ([]*entity.ConfigTag, error) {
 	var poList []*infraEntity.ConfigTagPO
 	db := r.db.WithContext(ctx)
-	db = queryutil.WhereEq(db, r.fields.Of(&r.model.TagKey).GetColumnName(), tagKey)
-	db = queryutil.WhereEq(db, r.fields.Of(&r.model.TagValue).GetColumnName(), tagValue)
+	db = queryutil.WhereEq(db, r.fields.Get("TagKey").GetColumnName(), tagKey)
+	db = queryutil.WhereEq(db, r.fields.Get("TagValue").GetColumnName(), tagValue)
 	err := db.Find(&poList).Error
 
 	if err != nil {
@@ -144,9 +144,9 @@ func (r *configTagRepositoryImpl) FindByTagKeyValue(ctx context.Context, tagKey,
 func (r *configTagRepositoryImpl) ExistsByConfigIDAndTag(ctx context.Context, configID int, tagKey, tagValue string) (bool, error) {
 	var count int64
 	db := r.db.WithContext(ctx).Model(&infraEntity.ConfigTagPO{})
-	db = queryutil.WhereEq(db, r.fields.Of(&r.model.ConfigID).GetColumnName(), configID)
-	db = queryutil.WhereEq(db, r.fields.Of(&r.model.TagKey).GetColumnName(), tagKey)
-	db = queryutil.WhereEq(db, r.fields.Of(&r.model.TagValue).GetColumnName(), tagValue)
+	db = queryutil.WhereEq(db, r.fields.Get("ConfigID").GetColumnName(), configID)
+	db = queryutil.WhereEq(db, r.fields.Get("TagKey").GetColumnName(), tagKey)
+	db = queryutil.WhereEq(db, r.fields.Get("TagValue").GetColumnName(), tagValue)
 	err := db.Count(&count).Error
 
 	if err != nil {
@@ -171,14 +171,14 @@ func (r *configTagRepositoryImpl) FindConfigIDsByTags(ctx context.Context, tags 
 
 	// 第一个标签作为基础查询
 	db := r.db.WithContext(ctx).Model(&infraEntity.ConfigTagPO{}).Select("config_id")
-	db = queryutil.WhereEq(db, r.fields.Of(&r.model.TagKey).GetColumnName(), tags[0].TagKey)
-	db = queryutil.WhereEq(db, r.fields.Of(&r.model.TagValue).GetColumnName(), tags[0].TagValue)
+	db = queryutil.WhereEq(db, r.fields.Get("TagKey").GetColumnName(), tags[0].TagKey)
+	db = queryutil.WhereEq(db, r.fields.Get("TagValue").GetColumnName(), tags[0].TagValue)
 
 	// 后续标签作为 INTERSECT 查询
 	for i := 1; i < len(tags); i++ {
 		subQuery := r.db.Model(&infraEntity.ConfigTagPO{}).Select("config_id")
-		subQuery = queryutil.WhereEq(subQuery, r.fields.Of(&r.model.TagKey).GetColumnName(), tags[i].TagKey)
-		subQuery = queryutil.WhereEq(subQuery, r.fields.Of(&r.model.TagValue).GetColumnName(), tags[i].TagValue)
+		subQuery = queryutil.WhereEq(subQuery, r.fields.Get("TagKey").GetColumnName(), tags[i].TagKey)
+		subQuery = queryutil.WhereEq(subQuery, r.fields.Get("TagValue").GetColumnName(), tags[i].TagValue)
 
 		// GORM 不直接支持 INTERSECT,使用 IN 子查询实现
 		db = queryutil.WhereIn(db, "config_id", subQuery)

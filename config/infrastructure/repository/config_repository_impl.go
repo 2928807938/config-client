@@ -272,34 +272,34 @@ func (r *ConfigRepositoryImpl) CountByNamespace(ctx context.Context, namespaceID
 func (r *ConfigRepositoryImpl) QueryByParams(ctx context.Context, params *repository.ConfigQueryParams) (*shareRepo.PageResult[*domainEntity.Config], error) {
 	db := r.db.WithContext(ctx).Model(&infraEntity.ConfigPO{})
 
-	// 构建查询条件（字段映射在这里处理）
+	// 构建查询条件(字段映射在这里处理)
 	if params.NamespaceID != nil {
-		db = queryutil.WhereEq(db, r.fields.Of(&r.model.NamespaceID).GetColumnName(), *params.NamespaceID)
+		db = queryutil.WhereEq(db, r.fields.Get("NamespaceID").GetColumnName(), *params.NamespaceID)
 	}
 
 	if params.Key != nil && *params.Key != "" {
 		// 支持模糊查询
-		db = queryutil.WhereLike(db, r.fields.Of(&r.model.Key).GetColumnName(), "%"+*params.Key+"%")
+		db = queryutil.WhereLike(db, r.fields.Get("Key").GetColumnName(), "%"+*params.Key+"%")
 	}
 
 	if params.GroupName != nil && *params.GroupName != "" {
-		db = queryutil.WhereEq(db, r.fields.Of(&r.model.GroupName).GetColumnName(), *params.GroupName)
+		db = queryutil.WhereEq(db, r.fields.Get("GroupName").GetColumnName(), *params.GroupName)
 	}
 
 	if params.Environment != nil && *params.Environment != "" {
-		db = queryutil.WhereEq(db, r.fields.Of(&r.model.Environment).GetColumnName(), *params.Environment)
+		db = queryutil.WhereEq(db, r.fields.Get("Environment").GetColumnName(), *params.Environment)
 	}
 
 	if params.IsActive != nil {
-		db = queryutil.WhereEq(db, r.fields.Of(&r.model.IsActive).GetColumnName(), *params.IsActive)
+		db = queryutil.WhereEq(db, r.fields.Get("IsActive").GetColumnName(), *params.IsActive)
 	}
 
 	if params.IsReleased != nil {
-		db = queryutil.WhereEq(db, r.fields.Of(&r.model.IsReleased).GetColumnName(), *params.IsReleased)
+		db = queryutil.WhereEq(db, r.fields.Get("IsReleased").GetColumnName(), *params.IsReleased)
 	}
 
 	if params.ValueType != nil && *params.ValueType != "" {
-		db = queryutil.WhereEq(db, r.fields.Of(&r.model.ValueType).GetColumnName(), *params.ValueType)
+		db = queryutil.WhereEq(db, r.fields.Get("ValueType").GetColumnName(), *params.ValueType)
 	}
 
 	// 统计总数
@@ -315,7 +315,7 @@ func (r *ConfigRepositoryImpl) QueryByParams(ctx context.Context, params *reposi
 		db = db.Order(params.OrderBy)
 	} else {
 		// 默认按创建时间倒序排列
-		db = queryutil.OrderByDesc(db, r.fields.Of(&r.model.CreatedAt).GetColumnName())
+		db = queryutil.OrderByDesc(db, r.fields.Get("CreatedAt").GetColumnName())
 	}
 
 	// 应用分页
