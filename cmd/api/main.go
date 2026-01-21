@@ -13,6 +13,7 @@ import (
 	configHttp "config-client/api/config-api/http"
 	"config-client/api/config-api/service"
 	domainService "config-client/config/domain/service"
+	infraListener "config-client/config/infrastructure/listener"
 	infraRepository "config-client/config/infrastructure/repository"
 	"config-client/share/config"
 	"config-client/share/middleware"
@@ -28,11 +29,13 @@ import (
 )
 
 var (
-	cfg    *config.Config
-	db     *gorm.DB
-	rdb    *redis.Client
-	ctx    = context.Background()
-	hertzH *server.Hertz
+	cfg                *config.Config
+	db                 *gorm.DB
+	rdb                *redis.Client
+	ctx                = context.Background()
+	hertzH             *server.Hertz
+	longPollingManager *service.LongPollingManager
+	configListener     *infraListener.RedisConfigListener
 )
 
 func main() {
@@ -54,11 +57,17 @@ func main() {
 	}
 	hlog.Infof("Redis连接成功")
 
-	// 4. 初始化HTTP服务器
+	// 4. 初始化长轮询管理器
+	if err := initLongPolling(); err != nil {
+		log.Fatalf("初始化长轮询管理器失败: %v", err)
+	}
+	hlog.Infof("长轮询管理器初始化成功")
+
+	// 5. 初始化HTTP服务器
 	initServer()
 	hlog.Infof("HTTP服务器初始化完成，监听端口: %d", cfg.Server.Port)
 
-	// 5. 启动服务器（非阻塞）
+	// 6. 启动服务器（非阻塞）
 	go func() {
 		if err := hertzH.Run(); err != nil {
 			log.Fatalf("启动服务器失败: %v", err)
@@ -180,6 +189,32 @@ func initRedis() error {
 	return nil
 }
 
+// initLongPolling 初始化长轮询管理器
+func initLongPolling() error {
+	// 1. 创建Redis配置监听器
+	configListener = infraListener.NewRedisConfigListener(rdb)
+
+	// 2. 创建配置仓储（用于版本查询）
+	configRepo := infraRepository.NewConfigRepository(db)
+
+	// 3. 创建版本获取函数
+	versionGetter := service.GetConfigVersionFunc(configRepo)
+
+	// 4. 创建长轮询管理器（超时60秒）
+	longPollingManager = service.NewLongPollingManager(
+		configListener,
+		60*time.Second,
+		versionGetter,
+	)
+
+	// 5. 启动长轮询管理器
+	if err := longPollingManager.Start(); err != nil {
+		return fmt.Errorf("启动长轮询管理器失败: %w", err)
+	}
+
+	return nil
+}
+
 // initServer 初始化HTTP服务器
 func initServer() {
 	// 创建Hertz实例
@@ -273,8 +308,8 @@ func registerConfigRoutes() {
 	// 1. 创建仓储层实例
 	configRepo := infraRepository.NewConfigRepository(db)
 
-	// 2. 创建领域服务实例
-	configDomainService := domainService.NewConfigService(configRepo)
+	// 2. 创建领域服务实例（传入配置监听器）
+	configDomainService := domainService.NewConfigService(configRepo, configListener)
 
 	// 3. 创建转换器实例
 	configConverter := converter.NewConfigConverter()
@@ -285,7 +320,11 @@ func registerConfigRoutes() {
 	// 5. 创建HTTP处理器实例
 	configHandler := configHttp.NewConfigHandler(configAppService)
 
-	// 6. 注册路由
+	// 6. 创建长轮询服务
+	longPollingService := service.NewLongPollingService(longPollingManager, configDomainService, configRepo)
+	longPollingHandler := configHttp.NewLongPollingHandler(longPollingService)
+
+	// 7. 注册路由
 	api := hertzH.Group("/api/v1")
 	{
 		configs := api.Group("/configs")
@@ -295,6 +334,7 @@ func registerConfigRoutes() {
 			configs.GET("", configHandler.QueryConfigs)       // 分页查询配置
 			configs.POST("/get", configHandler.GetConfigByID) // 根据ID获取配置（ID在请求体中）
 			configs.DELETE("", configHandler.DeleteConfig)    // 删除配置（ID在请求体中）
+			configs.POST("/watch", longPollingHandler.Watch)  // 长轮询监听配置变更
 		}
 	}
 }
@@ -307,7 +347,7 @@ func registerNamespaceRoutes() {
 	namespaceRepo := infraRepository.NewNamespaceRepository(db)
 	configRepo := infraRepository.NewConfigRepository(db)
 
-	// 2. 创建领域服务实例
+	// 2. 创建领域服务实例（传入配置监听器）
 	namespaceDomainService := domainService.NewNamespaceService(namespaceRepo, configRepo)
 
 	// 3. 创建转换器实例
@@ -341,6 +381,14 @@ func registerNamespaceRoutes() {
 
 // gracefulShutdown 优雅关闭
 func gracefulShutdown() {
+	// 关闭长轮询管理器
+	if longPollingManager != nil {
+		hlog.Info("正在关闭长轮询管理器...")
+		if err := longPollingManager.Stop(); err != nil {
+			hlog.Errorf("关闭长轮询管理器失败: %v", err)
+		}
+	}
+
 	// 关闭HTTP服务器
 	if hertzH != nil {
 		shutdownCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)

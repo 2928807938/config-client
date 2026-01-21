@@ -11,9 +11,11 @@ import (
 	"config-client/config/domain/constants"
 	"config-client/config/domain/entity"
 	domainErrors "config-client/config/domain/errors"
+	"config-client/config/domain/listener"
 	"config-client/config/domain/repository"
 	shareRepo "config-client/share/repository"
 
+	"github.com/cloudwego/hertz/pkg/common/hlog"
 	"gopkg.in/yaml.v3"
 )
 
@@ -25,12 +27,14 @@ import (
 // - 配置的哈希计算和验证
 type ConfigService struct {
 	configRepo repository.ConfigRepository
+	listener   listener.ConfigListener // 配置变更监听器（可选）
 }
 
 // NewConfigService 创建配置领域服务实例
-func NewConfigService(configRepo repository.ConfigRepository) *ConfigService {
+func NewConfigService(configRepo repository.ConfigRepository, listener listener.ConfigListener) *ConfigService {
 	return &ConfigService{
 		configRepo: configRepo,
+		listener:   listener,
 	}
 }
 
@@ -70,7 +74,19 @@ func (s *ConfigService) CreateConfig(ctx context.Context, config *entity.Config)
 	config.IsActive = true    // 新创建的配置默认激活
 
 	// 5. 保存配置
-	return s.configRepo.Create(ctx, config)
+	if err := s.configRepo.Create(ctx, config); err != nil {
+		return err
+	}
+
+	// 6. 发布配置变更事件
+	s.publishConfigChangeEvent(ctx, &listener.ConfigChangeEvent{
+		NamespaceID: config.NamespaceID,
+		ConfigKey:   config.Key,
+		ConfigID:    int64(config.ID),
+		Action:      "create",
+	})
+
+	return nil
 }
 
 // UpdateConfig 更新配置
@@ -113,7 +129,19 @@ func (s *ConfigService) UpdateConfig(ctx context.Context, config *entity.Config)
 	existingConfig.ValueType = config.ValueType
 
 	// 6. 保存更新
-	return s.configRepo.Update(ctx, existingConfig)
+	if err := s.configRepo.Update(ctx, existingConfig); err != nil {
+		return err
+	}
+
+	// 7. 发布配置变更事件
+	s.publishConfigChangeEvent(ctx, &listener.ConfigChangeEvent{
+		NamespaceID: existingConfig.NamespaceID,
+		ConfigKey:   existingConfig.Key,
+		ConfigID:    int64(existingConfig.ID),
+		Action:      "update",
+	})
+
+	return nil
 }
 
 // ReleaseConfig 发布配置
@@ -200,7 +228,19 @@ func (s *ConfigService) DeleteConfig(ctx context.Context, configID int) error {
 	}
 
 	// 3. 执行软删除
-	return s.configRepo.Delete(ctx, configID)
+	if err := s.configRepo.Delete(ctx, configID); err != nil {
+		return err
+	}
+
+	// 4. 发布配置变更事件
+	s.publishConfigChangeEvent(ctx, &listener.ConfigChangeEvent{
+		NamespaceID: config.NamespaceID,
+		ConfigKey:   config.Key,
+		ConfigID:    int64(config.ID),
+		Action:      "delete",
+	})
+
+	return nil
 }
 
 // ValidateConfig 验证配置的有效性
@@ -495,4 +535,18 @@ func validateYAMLValue(value string) error {
 	}
 
 	return nil
+}
+
+// publishConfigChangeEvent 发布配置变更事件
+func (s *ConfigService) publishConfigChangeEvent(ctx context.Context, event *listener.ConfigChangeEvent) {
+	if s.listener == nil {
+		return
+	}
+
+	// 异步发布事件，不阻塞主流程
+	go func() {
+		if err := s.listener.Publish(ctx, event); err != nil {
+			hlog.Errorf("发布配置变更事件失败: %v, event: %+v", err, event)
+		}
+	}()
 }
