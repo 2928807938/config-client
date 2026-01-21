@@ -34,7 +34,7 @@ var (
 	rdb                *redis.Client
 	ctx                = context.Background()
 	hertzH             *server.Hertz
-	longPollingManager *service.LongPollingManager
+	longPollingService *domainService.LongPollingService
 	configListener     *infraListener.RedisConfigListener
 )
 
@@ -189,7 +189,7 @@ func initRedis() error {
 	return nil
 }
 
-// initLongPolling 初始化长轮询管理器
+// initLongPolling 初始化长轮询服务
 func initLongPolling() error {
 	// 1. 创建Redis配置监听器
 	configListener = infraListener.NewRedisConfigListener(rdb)
@@ -197,19 +197,16 @@ func initLongPolling() error {
 	// 2. 创建配置仓储（用于版本查询）
 	configRepo := infraRepository.NewConfigRepository(db)
 
-	// 3. 创建版本获取函数
-	versionGetter := service.GetConfigVersionFunc(configRepo)
-
-	// 4. 创建长轮询管理器（超时60秒）
-	longPollingManager = service.NewLongPollingManager(
+	// 3. 创建长轮询领域服务（超时60秒）
+	longPollingService = domainService.NewLongPollingService(
 		configListener,
+		configRepo,
 		60*time.Second,
-		versionGetter,
 	)
 
-	// 5. 启动长轮询管理器
-	if err := longPollingManager.Start(); err != nil {
-		return fmt.Errorf("启动长轮询管理器失败: %w", err)
+	// 4. 启动长轮询服务
+	if err := longPollingService.Start(); err != nil {
+		return fmt.Errorf("启动长轮询服务失败: %w", err)
 	}
 
 	return nil
@@ -320,9 +317,9 @@ func registerConfigRoutes() {
 	// 5. 创建HTTP处理器实例
 	configHandler := configHttp.NewConfigHandler(configAppService)
 
-	// 6. 创建长轮询服务
-	longPollingService := service.NewLongPollingService(longPollingManager, configDomainService, configRepo)
-	longPollingHandler := configHttp.NewLongPollingHandler(longPollingService)
+	// 6. 创建长轮询应用服务
+	longPollingAppService := service.NewLongPollingAppService(longPollingService, configRepo)
+	longPollingHandler := configHttp.NewLongPollingHandler(longPollingAppService)
 
 	// 7. 注册路由
 	api := hertzH.Group("/api/v1")
@@ -381,11 +378,11 @@ func registerNamespaceRoutes() {
 
 // gracefulShutdown 优雅关闭
 func gracefulShutdown() {
-	// 关闭长轮询管理器
-	if longPollingManager != nil {
-		hlog.Info("正在关闭长轮询管理器...")
-		if err := longPollingManager.Stop(); err != nil {
-			hlog.Errorf("关闭长轮询管理器失败: %v", err)
+	// 关闭长轮询服务
+	if longPollingService != nil {
+		hlog.Info("正在关闭长轮询服务...")
+		if err := longPollingService.Stop(); err != nil {
+			hlog.Errorf("关闭长轮询服务失败: %v", err)
 		}
 	}
 

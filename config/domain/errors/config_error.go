@@ -26,7 +26,15 @@ const (
 	ConfigEnvironmentInvalid = 20801 // 环境参数无效 (400)
 	ConfigCannotDelete       = 20903 // 配置无法删除 (403)
 
-	// 命名空间相关错误码 20100-20199
+	// 长轮询相关错误码 20500-20599
+	LongPollingServiceNotStarted = 20500 // 长轮询服务未启动
+	LongPollingServiceStopped    = 20501 // 长轮询服务已关闭
+	LongPollingTimeout           = 20502 // 长轮询超时
+	LongPollingSubscribeFailed   = 20503 // 长轮询订阅失败
+	LongPollingInvalidConfigKey  = 20504 // 长轮询配置键格式无效
+	LongPollingGetVersionFailed  = 20505 // 长轮询获取配置版本失败
+
+	// 命名空间相关错误码 21000-21099
 	NamespaceNotFound       = 21004 // 命名空间不存在 (404)
 	NamespaceAlreadyExists  = 21005 // 命名空间已存在 (409)
 	NamespaceNotActive      = 21104 // 命名空间未激活 (404)
@@ -35,7 +43,32 @@ const (
 	NamespaceMustDeactivate = 21401 // 命名空间必须先停用 (400)
 )
 
-// ==================== 配置领域业务异常 ====================
+// ==================== 长轮询领域业务异常 ====================
+
+// ErrLongPollingServiceNotStarted 长轮询服务未启动
+func ErrLongPollingServiceNotStarted() *errors.AppError {
+	return errors.New(LongPollingServiceNotStarted, "长轮询服务未启动")
+}
+
+// ErrLongPollingServiceStopped 长轮询服务已关闭
+func ErrLongPollingServiceStopped() *errors.AppError {
+	return errors.New(LongPollingServiceStopped, "长轮询服务已关闭")
+}
+
+// ErrLongPollingSubscribeFailed 长轮询订阅失败
+func ErrLongPollingSubscribeFailed(err error) *errors.AppError {
+	return errors.Wrap(LongPollingSubscribeFailed, "订阅配置变更事件失败", err)
+}
+
+// ErrLongPollingInvalidConfigKey 长轮询配置键格式无效
+func ErrLongPollingInvalidConfigKey(configKey string) *errors.AppError {
+	return errors.New(LongPollingInvalidConfigKey, "长轮询配置键格式无效: "+configKey+", 正确格式为 namespaceID:configKey")
+}
+
+// ErrLongPollingGetVersionFailed 长轮询获取配置版本失败
+func ErrLongPollingGetVersionFailed(configKey string, err error) *errors.AppError {
+	return errors.Wrap(LongPollingGetVersionFailed, "获取配置版本失败: "+configKey, err)
+}
 
 // ErrConfigNotFound 配置不存在
 func ErrConfigNotFound(key string, environment string) *errors.AppError {

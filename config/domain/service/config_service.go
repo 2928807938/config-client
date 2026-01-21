@@ -82,7 +82,7 @@ func (s *ConfigService) CreateConfig(ctx context.Context, config *entity.Config)
 	s.publishConfigChangeEvent(ctx, &listener.ConfigChangeEvent{
 		NamespaceID: config.NamespaceID,
 		ConfigKey:   config.Key,
-		ConfigID:    int64(config.ID),
+		ConfigID:    config.ID,
 		Action:      "create",
 	})
 
@@ -137,7 +137,7 @@ func (s *ConfigService) UpdateConfig(ctx context.Context, config *entity.Config)
 	s.publishConfigChangeEvent(ctx, &listener.ConfigChangeEvent{
 		NamespaceID: existingConfig.NamespaceID,
 		ConfigKey:   existingConfig.Key,
-		ConfigID:    int64(existingConfig.ID),
+		ConfigID:    existingConfig.ID,
 		Action:      "update",
 	})
 
@@ -236,7 +236,7 @@ func (s *ConfigService) DeleteConfig(ctx context.Context, configID int) error {
 	s.publishConfigChangeEvent(ctx, &listener.ConfigChangeEvent{
 		NamespaceID: config.NamespaceID,
 		ConfigKey:   config.Key,
-		ConfigID:    int64(config.ID),
+		ConfigID:    config.ID,
 		Action:      "delete",
 	})
 

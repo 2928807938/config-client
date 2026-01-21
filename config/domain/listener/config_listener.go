@@ -4,9 +4,9 @@ import "context"
 
 // ConfigChangeEvent 配置变更事件
 type ConfigChangeEvent struct {
-	NamespaceID int64  `json:"namespace_id"` // 命名空间ID
+	NamespaceID int    `json:"namespace_id"` // 命名空间ID
 	ConfigKey   string `json:"config_key"`   // 配置键
-	ConfigID    int64  `json:"config_id"`    // 配置ID
+	ConfigID    int    `json:"config_id"`    // 配置ID
 	Action      string `json:"action"`       // 操作类型: create, update, delete
 }
 
