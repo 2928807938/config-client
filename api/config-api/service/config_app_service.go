@@ -137,10 +137,8 @@ func (s *ConfigAppService) GetConfigByID(ctx context.Context, configID int) (*vo
 
 // DeleteConfig 删除配置（逻辑删除）
 func (s *ConfigAppService) DeleteConfig(ctx context.Context, configID int) error {
-	// 注意：这里需要在领域服务中添加DeleteConfig方法
-	// 暂时返回未实现错误
-	// TODO: 在领域服务中添加DeleteConfig方法
-	return nil
+	// 直接调用领域服务删除配置（错误直接向上传递）
+	return s.configDomainService.DeleteConfig(ctx, configID)
 }
 
 // ==================== 辅助函数 ====================

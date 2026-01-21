@@ -13,6 +13,7 @@ import (
 	domainErrors "config-client/config/domain/errors"
 	"config-client/config/domain/repository"
 	shareRepo "config-client/share/repository"
+
 	"gopkg.in/yaml.v3"
 )
 
@@ -176,6 +177,30 @@ func (s *ConfigService) UnreleaseConfig(ctx context.Context, configID int) error
 
 	// 4. 保存更新
 	return s.configRepo.Update(ctx, config)
+}
+
+// DeleteConfig 删除配置（软删除）
+// 业务规则：
+// 1. 配置必须存在
+// 2. 已发布的配置不能删除，需要先取消发布
+// 3. 执行软删除
+func (s *ConfigService) DeleteConfig(ctx context.Context, configID int) error {
+	// 1. 检查配置是否存在
+	config, err := s.configRepo.GetByID(ctx, configID)
+	if err != nil {
+		return err
+	}
+	if config == nil {
+		return domainErrors.ErrConfigNotFound("", "")
+	}
+
+	// 2. 检查配置是否已发布
+	if config.IsReleased {
+		return domainErrors.ErrConfigCannotDelete(config.Key)
+	}
+
+	// 3. 执行软删除
+	return s.configRepo.Delete(ctx, configID)
 }
 
 // ValidateConfig 验证配置的有效性

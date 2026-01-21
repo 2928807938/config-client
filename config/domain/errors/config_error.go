@@ -24,6 +24,7 @@ const (
 	ConfigVersionConflict    = 20605 // 配置版本冲突 (409)
 	ConfigGroupNotFound      = 20704 // 配置分组不存在 (404)
 	ConfigEnvironmentInvalid = 20801 // 环境参数无效 (400)
+	ConfigCannotDelete       = 20903 // 配置无法删除 (403)
 
 	// 命名空间相关错误码 20100-20199
 	NamespaceNotFound       = 21004 // 命名空间不存在 (404)
@@ -114,6 +115,11 @@ func ErrConfigGroupNotFound(groupName string) *errors.AppError {
 // ErrConfigEnvironmentInvalid 环境参数无效
 func ErrConfigEnvironmentInvalid(environment string) *errors.AppError {
 	return errors.New(ConfigEnvironmentInvalid, "环境参数无效: env="+environment)
+}
+
+// ErrConfigCannotDelete 配置无法删除（已发布的配置不能删除）
+func ErrConfigCannotDelete(key string) *errors.AppError {
+	return errors.New(ConfigCannotDelete, "配置已发布，无法删除，请先取消发布: key="+key)
 }
 
 // ==================== 命名空间领域业务异常 ====================
