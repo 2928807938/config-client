@@ -7,4 +7,5 @@ use (
 	./config/domain
 	./config/infrastructure
 	./share
+	./sdk/config-client-go
 )
