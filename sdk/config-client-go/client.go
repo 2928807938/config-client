@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"strconv"
 	"sync"
 	"time"
 )
@@ -124,7 +125,7 @@ type ConfigVO struct {
 	Environment string    `json:"environment"`
 	IsActive    bool      `json:"is_active"`
 	IsReleased  bool      `json:"is_released"`
-	Version     string    `json:"version"`
+	Version     int       `json:"version"`
 	CreatedAt   time.Time `json:"created_at"`
 	UpdatedAt   time.Time `json:"updated_at"`
 }
@@ -312,7 +313,7 @@ func (c *Client) fetchAllConfigs() error {
 			Version string
 		}{
 			Value:   cfg.Value,
-			Version: cfg.Version,
+			Version: strconv.Itoa(cfg.Version),
 		}
 	}
 
@@ -379,7 +380,7 @@ func (c *Client) Get(key string) (string, error) {
 
 	// 更新缓存
 	if c.opts.EnableCache {
-		c.cache.Set(key, config.Value, config.Version)
+		c.cache.Set(key, config.Value, strconv.Itoa(config.Version))
 	}
 
 	return config.Value, nil
@@ -482,7 +483,7 @@ func (c *Client) Refresh(key string) error {
 	}
 
 	if c.opts.EnableCache {
-		c.cache.Set(key, config.Value, config.Version)
+		c.cache.Set(key, config.Value, strconv.Itoa(config.Version))
 	}
 
 	return nil
