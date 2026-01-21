@@ -121,9 +121,9 @@ func (r *ConfigRepositoryImpl) Page(ctx context.Context, request *shareRepo.Page
 func (r *ConfigRepositoryImpl) FindByNamespaceAndKey(ctx context.Context, namespaceID int, key string, environment string) (*domainEntity.Config, error) {
 	var po infraEntity.ConfigPO
 	db := r.db.WithContext(ctx)
-	db = queryutil.WhereEq(db, r.fields.Of(&r.model.NamespaceID).GetColumnName(), namespaceID)
-	db = queryutil.WhereEq(db, r.fields.Of(&r.model.Key).GetColumnName(), key)
-	db = queryutil.WhereEq(db, r.fields.Of(&r.model.Environment).GetColumnName(), environment)
+	db = queryutil.WhereEq(db, r.fields.Get("NamespaceID").GetColumnName(), namespaceID)
+	db = queryutil.WhereEq(db, r.fields.Get("Key").GetColumnName(), key)
+	db = queryutil.WhereEq(db, r.fields.Get("Environment").GetColumnName(), environment)
 	err := db.First(&po).Error
 
 	if err != nil {
@@ -140,9 +140,9 @@ func (r *ConfigRepositoryImpl) FindByNamespaceAndKey(ctx context.Context, namesp
 func (r *ConfigRepositoryImpl) FindByNamespace(ctx context.Context, namespaceID int) ([]*domainEntity.Config, error) {
 	var pos []*infraEntity.ConfigPO
 	db := r.db.WithContext(ctx)
-	db = queryutil.WhereEq(db, r.fields.Of(&r.model.NamespaceID).GetColumnName(), namespaceID)
-	db = queryutil.OrderBy(db, r.fields.Of(&r.model.GroupName).GetColumnName())
-	db = queryutil.OrderBy(db, r.fields.Of(&r.model.Key).GetColumnName())
+	db = queryutil.WhereEq(db, r.fields.Get("NamespaceID").GetColumnName(), namespaceID)
+	db = queryutil.OrderBy(db, r.fields.Get("GroupName").GetColumnName())
+	db = queryutil.OrderBy(db, r.fields.Get("Key").GetColumnName())
 	err := db.Find(&pos).Error
 
 	if err != nil {
@@ -156,10 +156,10 @@ func (r *ConfigRepositoryImpl) FindByNamespace(ctx context.Context, namespaceID 
 func (r *ConfigRepositoryImpl) FindByEnvironment(ctx context.Context, environment string) ([]*domainEntity.Config, error) {
 	var pos []*infraEntity.ConfigPO
 	db := r.db.WithContext(ctx)
-	db = queryutil.WhereEq(db, r.fields.Of(&r.model.Environment).GetColumnName(), environment)
-	db = queryutil.OrderBy(db, r.fields.Of(&r.model.NamespaceID).GetColumnName())
-	db = queryutil.OrderBy(db, r.fields.Of(&r.model.GroupName).GetColumnName())
-	db = queryutil.OrderBy(db, r.fields.Of(&r.model.Key).GetColumnName())
+	db = queryutil.WhereEq(db, r.fields.Get("Environment").GetColumnName(), environment)
+	db = queryutil.OrderBy(db, r.fields.Get("NamespaceID").GetColumnName())
+	db = queryutil.OrderBy(db, r.fields.Get("GroupName").GetColumnName())
+	db = queryutil.OrderBy(db, r.fields.Get("Key").GetColumnName())
 	err := db.Find(&pos).Error
 
 	if err != nil {
@@ -173,9 +173,9 @@ func (r *ConfigRepositoryImpl) FindByEnvironment(ctx context.Context, environmen
 func (r *ConfigRepositoryImpl) FindByGroup(ctx context.Context, namespaceID int, groupName string) ([]*domainEntity.Config, error) {
 	var pos []*infraEntity.ConfigPO
 	db := r.db.WithContext(ctx)
-	db = queryutil.WhereEq(db, r.fields.Of(&r.model.NamespaceID).GetColumnName(), namespaceID)
-	db = queryutil.WhereEq(db, r.fields.Of(&r.model.GroupName).GetColumnName(), groupName)
-	db = queryutil.OrderBy(db, r.fields.Of(&r.model.Key).GetColumnName())
+	db = queryutil.WhereEq(db, r.fields.Get("NamespaceID").GetColumnName(), namespaceID)
+	db = queryutil.WhereEq(db, r.fields.Get("GroupName").GetColumnName(), groupName)
+	db = queryutil.OrderBy(db, r.fields.Get("Key").GetColumnName())
 	err := db.Find(&pos).Error
 
 	if err != nil {
@@ -189,11 +189,11 @@ func (r *ConfigRepositoryImpl) FindByGroup(ctx context.Context, namespaceID int,
 func (r *ConfigRepositoryImpl) FindReleasedConfigs(ctx context.Context, namespaceID int, environment string) ([]*domainEntity.Config, error) {
 	var pos []*infraEntity.ConfigPO
 	db := r.db.WithContext(ctx)
-	db = queryutil.WhereEq(db, r.fields.Of(&r.model.NamespaceID).GetColumnName(), namespaceID)
-	db = queryutil.WhereEq(db, r.fields.Of(&r.model.Environment).GetColumnName(), environment)
-	db = queryutil.WhereEq(db, r.fields.Of(&r.model.IsReleased).GetColumnName(), true)
-	db = queryutil.OrderBy(db, r.fields.Of(&r.model.GroupName).GetColumnName())
-	db = queryutil.OrderBy(db, r.fields.Of(&r.model.Key).GetColumnName())
+	db = queryutil.WhereEq(db, r.fields.Get("NamespaceID").GetColumnName(), namespaceID)
+	db = queryutil.WhereEq(db, r.fields.Get("Environment").GetColumnName(), environment)
+	db = queryutil.WhereEq(db, r.fields.Get("IsReleased").GetColumnName(), true)
+	db = queryutil.OrderBy(db, r.fields.Get("GroupName").GetColumnName())
+	db = queryutil.OrderBy(db, r.fields.Get("Key").GetColumnName())
 	err := db.Find(&pos).Error
 
 	if err != nil {
@@ -241,9 +241,9 @@ func (r *ConfigRepositoryImpl) PageWithConditions(ctx context.Context, req *shar
 func (r *ConfigRepositoryImpl) ExistsByNamespaceAndKey(ctx context.Context, namespaceID int, key string, environment string) (bool, error) {
 	var count int64
 	db := r.db.WithContext(ctx).Model(&infraEntity.ConfigPO{})
-	db = queryutil.WhereEq(db, r.fields.Of(&r.model.NamespaceID).GetColumnName(), namespaceID)
-	db = queryutil.WhereEq(db, r.fields.Of(&r.model.Key).GetColumnName(), key)
-	db = queryutil.WhereEq(db, r.fields.Of(&r.model.Environment).GetColumnName(), environment)
+	db = queryutil.WhereEq(db, r.fields.Get("NamespaceID").GetColumnName(), namespaceID)
+	db = queryutil.WhereEq(db, r.fields.Get("Key").GetColumnName(), key)
+	db = queryutil.WhereEq(db, r.fields.Get("Environment").GetColumnName(), environment)
 	err := db.Count(&count).Error
 
 	if err != nil {
@@ -257,7 +257,7 @@ func (r *ConfigRepositoryImpl) ExistsByNamespaceAndKey(ctx context.Context, name
 func (r *ConfigRepositoryImpl) CountByNamespace(ctx context.Context, namespaceID int) (int64, error) {
 	var count int64
 	db := r.db.WithContext(ctx).Model(&infraEntity.ConfigPO{})
-	db = queryutil.WhereEq(db, r.fields.Of(&r.model.NamespaceID).GetColumnName(), namespaceID)
+	db = queryutil.WhereEq(db, r.fields.Get("NamespaceID").GetColumnName(), namespaceID)
 	err := db.Count(&count).Error
 
 	if err != nil {
