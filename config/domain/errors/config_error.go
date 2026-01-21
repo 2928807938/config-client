@@ -34,6 +34,15 @@ const (
 	LongPollingInvalidConfigKey  = 20504 // 长轮询配置键格式无效
 	LongPollingGetVersionFailed  = 20505 // 长轮询获取配置版本失败
 
+	// 订阅相关错误码 20600-20699
+	SubscriptionNotFound        = 20604 // 订阅不存在 (404)
+	SubscriptionAlreadyExists   = 20605 // 订阅已存在 (409)
+	SubscriptionInactive        = 20701 // 订阅未激活 (400)
+	SubscriptionExpired         = 20702 // 订阅已过期 (400)
+	SubscriptionCreateFailed    = 20703 // 创建订阅失败 (500)
+	SubscriptionUpdateFailed    = 20704 // 更新订阅失败 (500)
+	SubscriptionHeartbeatFailed = 20705 // 更新心跳失败 (500)
+
 	// 命名空间相关错误码 21000-21099
 	NamespaceNotFound       = 21004 // 命名空间不存在 (404)
 	NamespaceAlreadyExists  = 21005 // 命名空间已存在 (409)
@@ -213,4 +222,41 @@ func ErrNamespaceCannotDelete(name string, configCount int64) *errors.AppError {
 // ErrNamespaceMustDeactivate 命名空间必须先停用才能删除
 func ErrNamespaceMustDeactivate(name string) *errors.AppError {
 	return errors.New(NamespaceMustDeactivate, "命名空间必须先停用才能删除: name="+name)
+}
+
+// ==================== 订阅领域业务异常 ====================
+
+// ErrSubscriptionNotFound 订阅不存在
+func ErrSubscriptionNotFound(clientID string, namespaceID int, environment string) *errors.AppError {
+	return errors.New(SubscriptionNotFound, "订阅不存在: clientID="+clientID)
+}
+
+// ErrSubscriptionAlreadyExists 订阅已存在
+func ErrSubscriptionAlreadyExists(clientID string, namespaceID int, environment string) *errors.AppError {
+	return errors.New(SubscriptionAlreadyExists, "订阅已存在: clientID="+clientID)
+}
+
+// ErrSubscriptionInactive 订阅未激活
+func ErrSubscriptionInactive(clientID string) *errors.AppError {
+	return errors.New(SubscriptionInactive, "订阅未激活: clientID="+clientID)
+}
+
+// ErrSubscriptionExpired 订阅已过期
+func ErrSubscriptionExpired(clientID string) *errors.AppError {
+	return errors.New(SubscriptionExpired, "订阅已过期: clientID="+clientID)
+}
+
+// ErrSubscriptionCreateFailed 创建订阅失败
+func ErrSubscriptionCreateFailed(err error) *errors.AppError {
+	return errors.Wrap(SubscriptionCreateFailed, "创建订阅失败", err)
+}
+
+// ErrSubscriptionUpdateFailed 更新订阅失败
+func ErrSubscriptionUpdateFailed(err error) *errors.AppError {
+	return errors.Wrap(SubscriptionUpdateFailed, "更新订阅失败", err)
+}
+
+// ErrSubscriptionHeartbeatFailed 更新心跳失败
+func ErrSubscriptionHeartbeatFailed(err error) *errors.AppError {
+	return errors.Wrap(SubscriptionHeartbeatFailed, "更新心跳失败", err)
 }

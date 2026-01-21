@@ -29,13 +29,14 @@ import (
 )
 
 var (
-	cfg                *config.Config
-	db                 *gorm.DB
-	rdb                *redis.Client
-	ctx                = context.Background()
-	hertzH             *server.Hertz
-	longPollingService *domainService.LongPollingService
-	configListener     *infraListener.RedisConfigListener
+	cfg                 *config.Config
+	db                  *gorm.DB
+	rdb                 *redis.Client
+	ctx                 = context.Background()
+	hertzH              *server.Hertz
+	subscriptionManager *domainService.SubscriptionManager
+	longPollingService  *domainService.LongPollingService
+	configListener      *infraListener.RedisConfigListener
 )
 
 func main() {
@@ -197,14 +198,29 @@ func initLongPolling() error {
 	// 2. 创建配置仓储（用于版本查询）
 	configRepo := infraRepository.NewConfigRepository(db)
 
-	// 3. 创建长轮询领域服务（超时60秒）
-	longPollingService = domainService.NewLongPollingService(
-		configListener,
+	// 3. 创建订阅仓储
+	subscriptionRepo := infraRepository.NewSubscriptionRepository(db)
+
+	// 4. 创建订阅管理器（心跳超时时间5分钟）
+	subscriptionManager = domainService.NewSubscriptionManager(
+		subscriptionRepo,
 		configRepo,
+		configListener,
+		5*time.Minute,
+	)
+
+	// 5. 启动订阅管理器
+	if err := subscriptionManager.Start(); err != nil {
+		return fmt.Errorf("启动订阅管理器失败: %w", err)
+	}
+
+	// 6. 创建长轮询领域服务（超时60秒）
+	longPollingService = domainService.NewLongPollingService(
+		subscriptionManager,
 		60*time.Second,
 	)
 
-	// 4. 启动长轮询服务
+	// 7. 启动长轮询服务
 	if err := longPollingService.Start(); err != nil {
 		return fmt.Errorf("启动长轮询服务失败: %w", err)
 	}
@@ -402,6 +418,14 @@ func gracefulShutdown() {
 		hlog.Info("正在关闭长轮询服务...")
 		if err := longPollingService.Stop(); err != nil {
 			hlog.Errorf("关闭长轮询服务失败: %v", err)
+		}
+	}
+
+	// 关闭订阅管理器
+	if subscriptionManager != nil {
+		hlog.Info("正在关闭订阅管理器...")
+		if err := subscriptionManager.Stop(); err != nil {
+			hlog.Errorf("关闭订阅管理器失败: %v", err)
 		}
 	}
 

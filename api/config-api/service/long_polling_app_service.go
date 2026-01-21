@@ -34,19 +34,39 @@ func (s *LongPollingAppService) WaitForChanges(ctx context.Context, req *request
 	// 1. 转换请求参数
 	configKeys := make([]string, len(req.ConfigKeys))
 	versions := make(map[string]string)
+	var namespaceID int
+	var environment string
+
 	for i, item := range req.ConfigKeys {
 		configKey := fmt.Sprintf("%d:%s", item.NamespaceID, item.ConfigKey)
 		configKeys[i] = configKey
 		versions[configKey] = item.Version
+
+		// 记录第一个配置的命名空间和环境 (假设同一批配置在同一命名空间)
+		if i == 0 {
+			namespaceID = item.NamespaceID
+			environment = item.Environment
+		}
 	}
 
-	// 2. 调用领域服务等待变更（传递 context）
-	result, err := s.longPollingService.Wait(ctx, configKeys, versions)
+	// 2. 构建等待请求
+	waitReq := &domainService.WaitRequest{
+		ClientID:       req.ClientID,
+		ClientIP:       req.ClientIP,
+		ClientHostname: req.ClientHostname,
+		NamespaceID:    namespaceID,
+		Environment:    environment,
+		ConfigKeys:     configKeys,
+		Versions:       versions,
+	}
+
+	// 3. 调用领域服务等待变更（传递 context）
+	result, err := s.longPollingService.Wait(ctx, waitReq)
 	if err != nil {
 		return nil, err
 	}
 
-	// 3. 如果没有变更，返回未变更响应
+	// 4. 如果没有变更，返回未变更响应
 	if !result.Changed {
 		return &vo.LongPollingResponse{
 			Changed:    false,
@@ -55,7 +75,7 @@ func (s *LongPollingAppService) WaitForChanges(ctx context.Context, req *request
 		}, nil
 	}
 
-	// 4. 如果有变更，获取最新的配置详情
+	// 5. 如果有变更，获取最新的配置详情
 	configs, err := s.getConfigDetails(req.ConfigKeys, result.Versions)
 	if err != nil {
 		return nil, err

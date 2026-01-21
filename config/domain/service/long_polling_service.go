@@ -4,22 +4,22 @@ import (
 	"context"
 	"crypto/md5"
 	"encoding/hex"
-	"fmt"
-	"sync"
 	"time"
 
 	"config-client/config/domain/errors"
-	"config-client/config/domain/listener"
-	"config-client/config/domain/repository"
 
 	"github.com/cloudwego/hertz/pkg/common/hlog"
 )
 
 // WaitRequest 等待请求
 type WaitRequest struct {
-	ConfigKeys []string          // 配置键列表
-	Versions   map[string]string // 配置键 -> 版本号映射
-	ResultChan chan *WaitResult  // 结果通道
+	ClientID       string            // 客户端ID
+	ClientIP       string            // 客户端IP
+	ClientHostname string            // 客户端主机名
+	NamespaceID    int               // 命名空间ID
+	Environment    string            // 环境
+	ConfigKeys     []string          // 配置键列表 (格式: "namespaceID:configKey")
+	Versions       map[string]string // 配置键 -> 版本号映射
 }
 
 // WaitResult 等待结果
@@ -30,272 +30,104 @@ type WaitResult struct {
 }
 
 // LongPollingService 长轮询领域服务
+// 重构后的服务，委托订阅管理器处理订阅逻辑
 type LongPollingService struct {
-	listener     listener.ConfigListener     // 配置监听器
-	configRepo   repository.ConfigRepository // 配置仓储
-	waitRequests map[string][]*WaitRequest   // 配置键 -> 等待请求列表
-	mu           sync.RWMutex                // 读写锁
-	timeout      time.Duration               // 长轮询超时时间
-	queryTimeout time.Duration               // 数据库查询超时时间
-	ctx          context.Context             // 上下文
-	cancel       context.CancelFunc          // 取消函数
+	subscriptionMgr *SubscriptionManager // 订阅管理器
+	timeout         time.Duration        // 长轮询超时时间
 }
 
 // NewLongPollingService 创建长轮询领域服务
 func NewLongPollingService(
-	listener listener.ConfigListener,
-	configRepo repository.ConfigRepository,
+	subscriptionMgr *SubscriptionManager,
 	timeout time.Duration,
 ) *LongPollingService {
-	ctx, cancel := context.WithCancel(context.Background())
-
-	// 默认查询超时时间为 5 秒
-	queryTimeout := 5 * time.Second
-
 	return &LongPollingService{
-		listener:     listener,
-		configRepo:   configRepo,
-		waitRequests: make(map[string][]*WaitRequest),
-		timeout:      timeout,
-		queryTimeout: queryTimeout,
-		ctx:          ctx,
-		cancel:       cancel,
+		subscriptionMgr: subscriptionMgr,
+		timeout:         timeout,
 	}
 }
 
 // Start 启动长轮询服务
+// 注意: 订阅管理器需要单独启动
 func (s *LongPollingService) Start() error {
-	// 订阅配置变更事件
-	eventChan, err := s.listener.Subscribe(s.ctx)
-	if err != nil {
-		return errors.ErrLongPollingSubscribeFailed(err)
-	}
-
-	// 启动事件监听
-	go s.handleEvents(eventChan)
-
-	hlog.Info("长轮询领域服务已启动")
+	hlog.Info("长轮询服务已启动")
 	return nil
 }
 
 // Stop 停止长轮询服务
+// 注意: 订阅管理器需要单独停止
 func (s *LongPollingService) Stop() error {
-	s.cancel()
-	return s.listener.Close()
+	hlog.Info("长轮询服务已停止")
+	return nil
 }
 
 // Wait 等待配置变更
 // ctx: 请求上下文（用于取消等待）
-// configKeys: 配置键列表（格式: "namespaceID:configKey"）
-// versions: 当前版本号映射
+// req: 等待请求
 // 返回: 变更结果或超时
-func (s *LongPollingService) Wait(ctx context.Context, configKeys []string, versions map[string]string) (*WaitResult, error) {
-	// 先检查是否有配置已经变更
-	changed, changedKeys := s.checkVersions(configKeys, versions)
-	if changed {
-		// 获取最新版本号
-		latestVersions, err := s.getLatestVersions(configKeys)
-		if err != nil {
-			return nil, err
+func (s *LongPollingService) Wait(ctx context.Context, req *WaitRequest) (*WaitResult, error) {
+	// 1. 订阅配置变更
+	notifyChan, subscriptionID, err := s.subscriptionMgr.Subscribe(ctx, &SubscribeRequest{
+		ClientID:       req.ClientID,
+		ClientIP:       req.ClientIP,
+		ClientHostname: req.ClientHostname,
+		NamespaceID:    req.NamespaceID,
+		Environment:    req.Environment,
+		ConfigKeys:     req.ConfigKeys,
+		Versions:       req.Versions,
+	})
+	if err != nil {
+		return nil, errors.ErrLongPollingSubscribeFailed(err)
+	}
+
+	hlog.Infof("客户端开始长轮询: clientID=%s, namespace=%d, env=%s, subscriptionID=%d",
+		req.ClientID, req.NamespaceID, req.Environment, subscriptionID)
+
+	// 2. 延迟取消订阅
+	defer func() {
+		if err := s.subscriptionMgr.Unsubscribe(req.ClientID, req.NamespaceID, req.Environment); err != nil {
+			hlog.Errorf("取消订阅失败: %v", err)
 		}
+	}()
+
+	// 3. 等待通知或超时
+	select {
+	case notification, ok := <-notifyChan:
+		if !ok {
+			// 通道已关闭
+			return &WaitResult{
+				Changed:    false,
+				ConfigKeys: []string{},
+				Versions:   req.Versions,
+			}, nil
+		}
+
+		// 收到变更通知
+		hlog.Infof("配置变更通知: clientID=%s, configKey=%s, newVersion=%s",
+			req.ClientID, notification.ConfigKey, notification.NewVersion)
+
 		return &WaitResult{
 			Changed:    true,
-			ConfigKeys: changedKeys,
-			Versions:   latestVersions,
+			ConfigKeys: []string{notification.ConfigKey},
+			Versions: map[string]string{
+				notification.ConfigKey: notification.NewVersion,
+			},
 		}, nil
-	}
 
-	// 创建等待请求
-	req := &WaitRequest{
-		ConfigKeys: configKeys,
-		Versions:   versions,
-		ResultChan: make(chan *WaitResult, 1),
-	}
-
-	// 注册等待请求
-	s.registerWaitRequest(req)
-	defer s.unregisterWaitRequest(req)
-
-	// 等待结果或超时
-	select {
-	case result := <-req.ResultChan:
-		return result, nil
 	case <-time.After(s.timeout):
 		// 超时，返回未变更
+		hlog.Infof("长轮询超时: clientID=%s, namespace=%d", req.ClientID, req.NamespaceID)
 		return &WaitResult{
 			Changed:    false,
 			ConfigKeys: []string{},
-			Versions:   versions,
+			Versions:   req.Versions,
 		}, nil
+
 	case <-ctx.Done():
 		// 客户端取消请求
+		hlog.Infof("客户端取消请求: clientID=%s, error=%v", req.ClientID, ctx.Err())
 		return nil, ctx.Err()
-	case <-s.ctx.Done():
-		return nil, errors.ErrLongPollingServiceStopped()
 	}
-}
-
-// PublishChange 发布配置变更
-func (s *LongPollingService) PublishChange(ctx context.Context, event *listener.ConfigChangeEvent) error {
-	return s.listener.Publish(ctx, event)
-}
-
-// GetConfigVersion 获取配置版本号
-func (s *LongPollingService) GetConfigVersion(namespaceID int, configKey string) (string, error) {
-	ctx, cancel := context.WithTimeout(context.Background(), s.queryTimeout)
-	defer cancel()
-
-	config, err := s.configRepo.FindByNamespaceAndKey(ctx, namespaceID, configKey, "")
-	if err != nil {
-		return "", err
-	}
-	if config == nil {
-		return "", errors.ErrConfigNotFound(configKey, "")
-	}
-
-	return ComputeVersion(config.Value), nil
-}
-
-// handleEvents 处理配置变更事件
-func (s *LongPollingService) handleEvents(eventChan <-chan *listener.ConfigChangeEvent) {
-	for {
-		select {
-		case <-s.ctx.Done():
-			return
-		case event, ok := <-eventChan:
-			if !ok {
-				return
-			}
-			// 处理配置变更事件
-			s.notifyWaiters(event)
-		}
-	}
-}
-
-// notifyWaiters 通知等待的客户端
-func (s *LongPollingService) notifyWaiters(event *listener.ConfigChangeEvent) {
-	configKey := fmt.Sprintf("%d:%s", event.NamespaceID, event.ConfigKey)
-
-	s.mu.Lock()
-	defer s.mu.Unlock()
-
-	// 获取等待该配置的请求列表
-	requests, exists := s.waitRequests[configKey]
-	if !exists || len(requests) == 0 {
-		return
-	}
-
-	hlog.Infof("配置变更通知: %s, 等待数: %d", configKey, len(requests))
-
-	// 通知所有等待的请求
-	for _, req := range requests {
-		// 检查该请求是否关注这个配置
-		if s.containsConfigKey(req.ConfigKeys, configKey) {
-			// 获取最新版本号
-			latestVersions, err := s.getLatestVersions(req.ConfigKeys)
-			if err != nil {
-				hlog.Errorf("获取最新版本失败: %v", err)
-				continue
-			}
-
-			// 发送结果（非阻塞）
-			select {
-			case req.ResultChan <- &WaitResult{
-				Changed:    true,
-				ConfigKeys: []string{configKey},
-				Versions:   latestVersions,
-			}:
-			default:
-			}
-		}
-	}
-
-	// 清空该配置的等待列表
-	delete(s.waitRequests, configKey)
-}
-
-// registerWaitRequest 注册等待请求
-func (s *LongPollingService) registerWaitRequest(req *WaitRequest) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-
-	for _, configKey := range req.ConfigKeys {
-		s.waitRequests[configKey] = append(s.waitRequests[configKey], req)
-	}
-}
-
-// unregisterWaitRequest 注销等待请求
-func (s *LongPollingService) unregisterWaitRequest(req *WaitRequest) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-
-	for _, configKey := range req.ConfigKeys {
-		requests := s.waitRequests[configKey]
-		for i, r := range requests {
-			if r == req {
-				// 删除该请求
-				s.waitRequests[configKey] = append(requests[:i], requests[i+1:]...)
-				break
-			}
-		}
-		// 如果该配置的等待列表为空，删除key
-		if len(s.waitRequests[configKey]) == 0 {
-			delete(s.waitRequests, configKey)
-		}
-	}
-}
-
-// checkVersions 检查版本是否有变更
-func (s *LongPollingService) checkVersions(configKeys []string, clientVersions map[string]string) (bool, []string) {
-	var changedKeys []string
-	for _, configKey := range configKeys {
-		clientVersion := clientVersions[configKey]
-		serverVersion, err := s.getVersionFromConfigKey(configKey)
-		if err != nil {
-			hlog.Errorf("获取配置版本失败: %s, error: %v", configKey, err)
-			continue
-		}
-		if clientVersion != serverVersion {
-			changedKeys = append(changedKeys, configKey)
-		}
-	}
-	return len(changedKeys) > 0, changedKeys
-}
-
-// getLatestVersions 获取最新版本号
-func (s *LongPollingService) getLatestVersions(configKeys []string) (map[string]string, error) {
-	versions := make(map[string]string)
-	for _, configKey := range configKeys {
-		version, err := s.getVersionFromConfigKey(configKey)
-		if err != nil {
-			return nil, errors.ErrLongPollingGetVersionFailed(configKey, err)
-		}
-		versions[configKey] = version
-	}
-	return versions, nil
-}
-
-// getVersionFromConfigKey 从配置键获取版本号
-func (s *LongPollingService) getVersionFromConfigKey(configKey string) (string, error) {
-	// 解析configKey (格式: "namespaceID:key")
-	var namespaceID int
-	var key string
-	_, err := fmt.Sscanf(configKey, "%d:%s", &namespaceID, &key)
-	if err != nil {
-		return "", errors.ErrLongPollingInvalidConfigKey(configKey)
-	}
-
-	return s.GetConfigVersion(namespaceID, key)
-}
-
-// containsConfigKey 检查配置键是否在列表中
-func (s *LongPollingService) containsConfigKey(keys []string, target string) bool {
-	for _, key := range keys {
-		if key == target {
-			return true
-		}
-	}
-	return false
 }
 
 // ComputeVersion 计算配置版本（使用MD5）

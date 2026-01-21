@@ -4,7 +4,6 @@ go 1.24.11
 
 require (
 	config-client/config/domain v0.0.0
-	config-client/config/infrastructure v0.0.0
 	config-client/share v0.0.0
 	github.com/cloudwego/hertz v0.9.3
 )
