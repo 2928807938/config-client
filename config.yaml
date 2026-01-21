@@ -51,3 +51,11 @@ log:
   format: text
   # 日志输出: stdout, stderr, file
   output: stdout
+
+# 安全配置
+security:
+  # AES-256加密密钥（必须是32字节）
+  # ⚠️ 生产环境请务必修改此密钥！密钥丢失将无法解密已加密的配置！
+  encryption_key: "your-32byte-encryption-key!!"
+  # 是否启用脱敏功能
+  masking_enabled: true

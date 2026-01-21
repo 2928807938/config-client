@@ -321,32 +321,50 @@ func registerConfigRoutes() {
 	// 1. 创建仓储层实例
 	configRepo := infraRepository.NewConfigRepository(db)
 	changeHistoryRepo := infraRepository.NewChangeHistoryRepository(db)
+	tagRepo := infraRepository.NewConfigTagRepository(db) // 新增：标签仓储
 
-	// 2. 创建变更历史领域服务
+	// 2. 创建脱敏服务（使用配置文件中的加密密钥）
+	maskingSvc := domainService.NewMaskingService(
+		cfg.Security.EncryptionKey,
+		cfg.Security.MaskingEnabled,
+	)
+	hlog.Infof("脱敏服务已创建，启用状态: %v", cfg.Security.MaskingEnabled)
+
+	// 3. 创建标签服务
+	tagSvc := domainService.NewConfigTagService(tagRepo, maskingSvc)
+	hlog.Info("标签服务已创建")
+
+	// 4. 创建变更历史领域服务
 	changeHistoryService := domainService.NewChangeHistoryService(changeHistoryRepo, configRepo, nil)
 
-	// 3. 创建配置领域服务实例（传入配置监听器和变更历史服务）
-	configDomainService := domainService.NewConfigService(configRepo, configListener, changeHistoryService)
+	// 5. 创建配置领域服务实例（传入配置监听器、变更历史服务、脱敏服务和标签服务）
+	configDomainService := domainService.NewConfigService(
+		configRepo,
+		configListener,
+		changeHistoryService,
+		maskingSvc, // 新增：脱敏服务
+		tagSvc,     // 新增：标签服务
+	)
 
-	// 4. 更新变更历史服务的配置服务引用（用于回滚）
+	// 6. 更新变更历史服务的配置服务引用（用于回滚）
 	changeHistoryService = domainService.NewChangeHistoryService(changeHistoryRepo, configRepo, configDomainService)
 
-	// 5. 创建转换器实例
-	configConverter := converter.NewConfigConverter()
+	// 7. 创建转换器实例（传入脱敏服务和标签服务）
+	configConverter := converter.NewConfigConverter(maskingSvc, tagSvc)
 
-	// 6. 创建应用服务实例
+	// 8. 创建应用服务实例
 	configAppService := service.NewConfigAppService(configDomainService, configConverter)
 	changeHistoryAppService := service.NewChangeHistoryAppService(changeHistoryService)
 
-	// 7. 创建HTTP处理器实例
+	// 9. 创建HTTP处理器实例
 	configHandler := configHttp.NewConfigHandler(configAppService)
 	changeHistoryHandler := configHttp.NewChangeHistoryHandler(changeHistoryAppService)
 
-	// 8. 创建长轮询应用服务
+	// 10. 创建长轮询应用服务
 	longPollingAppService := service.NewLongPollingAppService(longPollingService, configRepo)
 	longPollingHandler := configHttp.NewLongPollingHandler(longPollingAppService)
 
-	// 9. 注册路由
+	// 11. 注册路由
 	api := hertzH.Group("/api/v1")
 	{
 		configs := api.Group("/configs")

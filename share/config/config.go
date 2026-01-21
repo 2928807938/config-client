@@ -14,6 +14,7 @@ type Config struct {
 	Redis    RedisConfig    `yaml:"redis"`
 	Server   ServerConfig   `yaml:"server"`
 	Log      LogConfig      `yaml:"log"`
+	Security SecurityConfig `yaml:"security"`
 }
 
 // DatabaseConfig 数据库配置
@@ -96,6 +97,12 @@ type LogConfig struct {
 	Level  string `yaml:"level"`
 	Format string `yaml:"format"`
 	Output string `yaml:"output"`
+}
+
+// SecurityConfig 安全配置
+type SecurityConfig struct {
+	EncryptionKey  string `yaml:"encryption_key"`  // AES-256加密密钥（必须32字节）
+	MaskingEnabled bool   `yaml:"masking_enabled"` // 是否启用脱敏功能
 }
 
 // GetDSN 获取数据库DSN连接字符串
@@ -203,4 +210,11 @@ func setDefaults(config *Config) {
 	if config.Log.Output == "" {
 		config.Log.Output = "stdout"
 	}
+
+	// 安全配置默认值
+	if config.Security.EncryptionKey == "" {
+		// 默认密钥（生产环境必须修改！）
+		config.Security.EncryptionKey = "default-32byte-encryption-key!!"
+	}
+	// MaskingEnabled 默认 false，需要显式配置启用
 }

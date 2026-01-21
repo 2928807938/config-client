@@ -27,10 +27,13 @@ import (
 // - 配置的版本管理
 // - 配置的哈希计算和验证
 // - 配置变更历史记录
+// - 配置的脱敏和标签管理
 type ConfigService struct {
 	configRepo       repository.ConfigRepository
 	listener         listener.ConfigListener // 配置变更监听器（可选）
 	changeHistorySvc *ChangeHistoryService   // 变更历史服务（可选）
+	maskingSvc       *MaskingService         // 脱敏服务（可选）
+	tagSvc           *ConfigTagService       // 标签服务（可选）
 }
 
 // NewConfigService 创建配置领域服务实例
@@ -38,11 +41,15 @@ func NewConfigService(
 	configRepo repository.ConfigRepository,
 	listener listener.ConfigListener,
 	changeHistorySvc *ChangeHistoryService,
+	maskingSvc *MaskingService,
+	tagSvc *ConfigTagService,
 ) *ConfigService {
 	return &ConfigService{
 		configRepo:       configRepo,
 		listener:         listener,
 		changeHistorySvc: changeHistorySvc,
+		maskingSvc:       maskingSvc,
+		tagSvc:           tagSvc,
 	}
 }
 
@@ -51,6 +58,8 @@ func NewConfigService(
 // 1. 配置键不能为空，且必须符合命名规范
 // 2. 同一命名空间+环境下，配置键必须唯一
 // 3. 自动计算并设置内容哈希
+// 4. 敏感配置自动加密存储
+// 5. 自动生成标签
 func (s *ConfigService) CreateConfig(ctx context.Context, config *entity.Config) error {
 	// 1. 验证配置有效性
 	if err := s.ValidateConfig(ctx, config); err != nil {
@@ -66,7 +75,20 @@ func (s *ConfigService) CreateConfig(ctx context.Context, config *entity.Config)
 		return domainErrors.ErrConfigAlreadyExists(config.Key, config.Environment)
 	}
 
-	// 3. 计算内容哈希
+	// 3. 处理敏感配置：自动加密
+	originalValue := config.Value // 保存原始值用于历史记录
+	if s.maskingSvc != nil && s.maskingSvc.IsSensitiveKey(config.Key) {
+		encryptedValue, err := s.maskingSvc.EncryptValue(config.Value)
+		if err != nil {
+			hlog.CtxErrorf(ctx, "加密配置值失败: %v", err)
+			return err
+		}
+		config.Value = encryptedValue
+		config.ValueType = constants.ValueTypeEncrypted // 标记为加密类型
+		hlog.CtxInfof(ctx, "敏感配置已加密: key=%s", config.Key)
+	}
+
+	// 4. 计算内容哈希
 	hash, err := s.ComputeContentHash(config.Value, constants.HashAlgorithmMD5)
 	if err != nil {
 		return err
@@ -74,19 +96,30 @@ func (s *ConfigService) CreateConfig(ctx context.Context, config *entity.Config)
 	config.ContentHash = hash
 	config.ContentHashAlgorithm = constants.HashAlgorithmMD5
 
-	// 4. 设置默认值
+	// 5. 设置默认值
 	if config.GroupName == "" {
 		config.GroupName = constants.DefaultGroupName
 	}
 	config.IsReleased = false // 新创建的配置默认未发布
 	config.IsActive = true    // 新创建的配置默认激活
 
-	// 5. 保存配置
+	// 6. 保存配置
 	if err := s.configRepo.Create(ctx, config); err != nil {
 		return err
 	}
 
-	// 6. 发布配置变更事件
+	// 7. 自动生成并保存标签
+	if s.tagSvc != nil {
+		autoTags := s.tagSvc.AutoGenerateTags(ctx, config)
+		if len(autoTags) > 0 {
+			if err := s.tagSvc.AddTags(ctx, config.ID, autoTags); err != nil {
+				hlog.CtxWarnf(ctx, "自动添加标签失败: %v, configID=%d", err, config.ID)
+				// 标签添加失败不影响配置创建，继续执行
+			}
+		}
+	}
+
+	// 8. 发布配置变更事件
 	s.publishConfigChangeEvent(ctx, &listener.ConfigChangeEvent{
 		NamespaceID: config.NamespaceID,
 		ConfigKey:   config.Key,
@@ -94,7 +127,7 @@ func (s *ConfigService) CreateConfig(ctx context.Context, config *entity.Config)
 		Action:      "create",
 	})
 
-	// 7. 记录变更历史
+	// 9. 记录变更历史（使用原始值，不记录加密后的值）
 	s.recordChangeHistory(ctx, &entity.ChangeRecord{
 		ConfigID:     config.ID,
 		NamespaceID:  config.NamespaceID,
@@ -102,7 +135,7 @@ func (s *ConfigService) CreateConfig(ctx context.Context, config *entity.Config)
 		Environment:  config.Environment,
 		Operation:    entity.OperationCreate,
 		OldValue:     "",
-		NewValue:     config.Value,
+		NewValue:     originalValue,
 		OldVersion:   0,
 		NewVersion:   config.Version,
 		Operator:     s.getOperator(ctx),
@@ -643,4 +676,47 @@ func (s *ConfigService) getOperatorIP(ctx context.Context) string {
 		return ip
 	}
 	return ""
+}
+
+// ==================== 脱敏相关方法 ====================
+
+// MaskConfigValue 对配置值进行脱敏处理
+// 用于API返回时隐藏敏感信息
+func (s *ConfigService) MaskConfigValue(config *entity.Config) string {
+	if s.maskingSvc == nil {
+		return config.Value
+	}
+
+	// 如果是加密类型或敏感配置，进行脱敏
+	if config.ValueType == constants.ValueTypeEncrypted || s.maskingSvc.IsSensitiveKey(config.Key) {
+		return s.maskingSvc.MaskValue(config.Value)
+	}
+
+	return config.Value
+}
+
+// GetConfigWithDecryption 获取配置并解密（需要权限）
+// unmask: 是否解密并返回原始值
+func (s *ConfigService) GetConfigWithDecryption(ctx context.Context, configID int, unmask bool) (*entity.Config, error) {
+	config, err := s.GetByID(ctx, configID)
+	if err != nil {
+		return nil, err
+	}
+
+	// 如果不需要解密或没有脱敏服务，直接返回
+	if !unmask || s.maskingSvc == nil {
+		return config, nil
+	}
+
+	// 如果是加密类型，尝试解密
+	if config.ValueType == constants.ValueTypeEncrypted {
+		decryptedValue, err := s.maskingSvc.DecryptValue(config.Value)
+		if err != nil {
+			hlog.CtxErrorf(ctx, "解密配置值失败: %v, configID=%d", err, configID)
+			return nil, err
+		}
+		config.Value = decryptedValue
+	}
+
+	return config, nil
 }

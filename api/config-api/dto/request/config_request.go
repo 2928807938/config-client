@@ -2,15 +2,16 @@ package request
 
 // CreateConfigRequest 创建配置请求 DTO
 type CreateConfigRequest struct {
-	NamespaceID int    `json:"namespace_id" binding:"required,min=1"` // 命名空间ID
-	Key         string `json:"key" binding:"required,max=500"`        // 配置键
-	Value       string `json:"value" binding:"required"`              // 配置值
-	GroupName   string `json:"group_name" binding:"max=255"`          // 配置分组，默认"default"
-	ValueType   string `json:"value_type" binding:"max=50"`           // 值类型，默认"string"
-	Environment string `json:"environment" binding:"max=50"`          // 环境，默认"default"
-	Description string `json:"description"`                           // 配置描述
-	Metadata    string `json:"metadata"`                              // 扩展元数据（JSON格式）
-	CreatedBy   string `json:"created_by" binding:"max=100"`          // 创建人
+	NamespaceID int        `json:"namespace_id" binding:"required,min=1"` // 命名空间ID
+	Key         string     `json:"key" binding:"required,max=500"`        // 配置键
+	Value       string     `json:"value" binding:"required"`              // 配置值
+	GroupName   string     `json:"group_name" binding:"max=255"`          // 配置分组，默认"default"
+	ValueType   string     `json:"value_type" binding:"max=50"`           // 值类型，默认"string"
+	Environment string     `json:"environment" binding:"max=50"`          // 环境，默认"default"
+	Description string     `json:"description"`                           // 配置描述
+	Metadata    string     `json:"metadata"`                              // 扩展元数据（JSON格式）
+	Tags        []TagInput `json:"tags,omitempty" binding:"dive"`         // 配置标签（可选）
+	CreatedBy   string     `json:"created_by" binding:"max=100"`          // 创建人
 }
 
 // UpdateConfigRequest 更新配置请求 DTO
