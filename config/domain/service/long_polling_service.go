@@ -33,17 +33,22 @@ type WaitResult struct {
 // 重构后的服务，委托订阅管理器处理订阅逻辑
 type LongPollingService struct {
 	subscriptionMgr *SubscriptionManager // 订阅管理器
-	timeout         time.Duration        // 长轮询超时时间
+	systemConfigSvc *SystemConfigService // 系统配置服务（可选）
+	defaultTimeout  time.Duration        // 默认长轮询超时时间（用于向后兼容）
 }
 
 // NewLongPollingService 创建长轮询领域服务
+// 如果传入 systemConfigSvc，则从系统配置读取超时时间
+// 否则使用传入的 timeout 参数
 func NewLongPollingService(
 	subscriptionMgr *SubscriptionManager,
 	timeout time.Duration,
+	systemConfigSvc *SystemConfigService,
 ) *LongPollingService {
 	return &LongPollingService{
 		subscriptionMgr: subscriptionMgr,
-		timeout:         timeout,
+		systemConfigSvc: systemConfigSvc,
+		defaultTimeout:  timeout,
 	}
 }
 
@@ -59,6 +64,15 @@ func (s *LongPollingService) Start() error {
 func (s *LongPollingService) Stop() error {
 	hlog.Info("长轮询服务已停止")
 	return nil
+}
+
+// getTimeout 获取长轮询超时时间
+// 优先从系统配置读取，如果系统配置服务未注入或配置不存在，则使用默认值
+func (s *LongPollingService) getTimeout() time.Duration {
+	if s.systemConfigSvc != nil {
+		return s.systemConfigSvc.GetLongPollingTimeoutDuration()
+	}
+	return s.defaultTimeout
 }
 
 // Wait 等待配置变更
@@ -90,7 +104,10 @@ func (s *LongPollingService) Wait(ctx context.Context, req *WaitRequest) (*WaitR
 		}
 	}()
 
-	// 3. 等待通知或超时
+	// 3. 获取超时时间（从系统配置读取）
+	timeout := s.getTimeout()
+
+	// 4. 等待通知或超时
 	select {
 	case notification, ok := <-notifyChan:
 		if !ok {
@@ -114,9 +131,9 @@ func (s *LongPollingService) Wait(ctx context.Context, req *WaitRequest) (*WaitR
 			},
 		}, nil
 
-	case <-time.After(s.timeout):
+	case <-time.After(timeout):
 		// 超时，返回未变更
-		hlog.Infof("长轮询超时: clientID=%s, namespace=%d", req.ClientID, req.NamespaceID)
+		hlog.Infof("长轮询超时: clientID=%s, namespace=%d, timeout=%v", req.ClientID, req.NamespaceID, timeout)
 		return &WaitResult{
 			Changed:    false,
 			ConfigKeys: []string{},

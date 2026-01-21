@@ -12,6 +12,8 @@ import (
 	"config-client/api/config-api/converter"
 	configHttp "config-client/api/config-api/http"
 	"config-client/api/config-api/service"
+	domainEntity "config-client/config/domain/entity"
+	"config-client/config/domain/repository"
 	domainService "config-client/config/domain/service"
 	infraListener "config-client/config/infrastructure/listener"
 	infraRepository "config-client/config/infrastructure/repository"
@@ -37,6 +39,7 @@ var (
 	subscriptionManager *domainService.SubscriptionManager
 	longPollingService  *domainService.LongPollingService
 	configListener      *infraListener.RedisConfigListener
+	systemConfigService *domainService.SystemConfigService // 系统配置服务
 )
 
 func main() {
@@ -58,31 +61,37 @@ func main() {
 	}
 	hlog.Infof("Redis连接成功")
 
-	// 4. 初始化长轮询管理器
+	// 4. 初始化系统配置
+	if err := initSystemConfig(); err != nil {
+		log.Fatalf("初始化系统配置失败: %v", err)
+	}
+	hlog.Infof("系统配置初始化成功")
+
+	// 5. 初始化长轮询管理器
 	if err := initLongPolling(); err != nil {
 		log.Fatalf("初始化长轮询管理器失败: %v", err)
 	}
 	hlog.Infof("长轮询管理器初始化成功")
 
-	// 5. 初始化HTTP服务器
+	// 6. 初始化HTTP服务器
 	initServer()
 	hlog.Infof("HTTP服务器初始化完成，监听端口: %d", cfg.Server.Port)
 
-	// 6. 启动服务器（非阻塞）
+	// 7. 启动服务器（非阻塞）
 	go func() {
 		if err := hertzH.Run(); err != nil {
 			log.Fatalf("启动服务器失败: %v", err)
 		}
 	}()
 
-	// 6. 等待中断信号
+	// 8. 等待中断信号
 	quit := make(chan os.Signal, 1)
 	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
 	<-quit
 
 	hlog.Info("正在关闭服务器...")
 
-	// 7. 优雅关闭
+	// 9. 优雅关闭
 	gracefulShutdown()
 
 	hlog.Info("服务器已关闭")
@@ -190,6 +199,86 @@ func initRedis() error {
 	return nil
 }
 
+// initSystemConfig 初始化系统配置
+func initSystemConfig() error {
+	// 1. 创建系统配置仓储
+	systemConfigRepo := infraRepository.NewSystemConfigRepository(db)
+
+	// 2. 创建系统配置服务
+	systemConfigService = domainService.NewSystemConfigService(systemConfigRepo)
+
+	// 3. 初始化默认配置（如果数据库中不存在）
+	if err := initDefaultSystemConfigs(systemConfigRepo); err != nil {
+		return fmt.Errorf("初始化默认系统配置失败: %w", err)
+	}
+
+	return nil
+}
+
+// initDefaultSystemConfigs 初始化默认系统配置
+func initDefaultSystemConfigs(repo repository.SystemConfigRepository) error {
+	ctx := context.Background()
+
+	// 定义默认配置项
+	defaultConfigs := []struct {
+		Key         string
+		Value       string
+		Description string
+	}{
+		{
+			Key:         domainService.ConfigKeyLongPollingTimeout,
+			Value:       "30",
+			Description: "长轮询超时时间（秒）",
+		},
+		{
+			Key:         domainService.ConfigKeyLongPollingMaxWait,
+			Value:       "60",
+			Description: "长轮询最大等待时间（秒）",
+		},
+		{
+			Key:         domainService.ConfigKeyMaxSubscriptions,
+			Value:       "10000",
+			Description: "最大订阅数",
+		},
+		{
+			Key:         domainService.ConfigKeyHeartbeatInterval,
+			Value:       "60",
+			Description: "心跳间隔时间（秒）",
+		},
+		{
+			Key:         domainService.ConfigKeyHeartbeatTimeout,
+			Value:       "300",
+			Description: "心跳超时时间（秒）",
+		},
+	}
+
+	// 插入不存在的配置
+	for _, cfg := range defaultConfigs {
+		exists, err := repo.ExistsByKey(ctx, cfg.Key)
+		if err != nil {
+			hlog.Warnf("检查系统配置是否存在失败: key=%s, err=%v", cfg.Key, err)
+			continue
+		}
+
+		if !exists {
+			// 配置不存在，插入默认值
+			newConfig := &domainEntity.SystemConfig{
+				ConfigKey:   cfg.Key,
+				ConfigValue: cfg.Value,
+				Description: cfg.Description,
+				IsActive:    true,
+			}
+			if err := repo.Create(ctx, newConfig); err != nil {
+				hlog.Warnf("创建默认系统配置失败: key=%s, err=%v", cfg.Key, err)
+			} else {
+				hlog.Infof("已创建默认系统配置: key=%s, value=%s", cfg.Key, cfg.Value)
+			}
+		}
+	}
+
+	return nil
+}
+
 // initLongPolling 初始化长轮询服务
 func initLongPolling() error {
 	// 1. 创建Redis配置监听器
@@ -214,10 +303,11 @@ func initLongPolling() error {
 		return fmt.Errorf("启动订阅管理器失败: %w", err)
 	}
 
-	// 6. 创建长轮询领域服务（超时60秒）
+	// 6. 创建长轮询领域服务（注入系统配置服务）
 	longPollingService = domainService.NewLongPollingService(
 		subscriptionManager,
-		60*time.Second,
+		60*time.Second,      // 默认超时（向后兼容）
+		systemConfigService, // 系统配置服务
 	)
 
 	// 7. 启动长轮询服务
