@@ -54,6 +54,9 @@ type SubscriptionManager struct {
 	// 配置监听器 (接收变更事件)
 	listener listener.ConfigListener
 
+	// 发布管理服务 (用于灰度发布判断)
+	releaseSvc *ReleaseService
+
 	// 活跃订阅者 (内存)
 	// key: "namespaceID:environment:clientID"
 	activeSubscribers map[string]*ActiveSubscriber
@@ -86,6 +89,7 @@ func NewSubscriptionManager(
 		subscriptionRepo:  subscriptionRepo,
 		configRepo:        configRepo,
 		listener:          listener,
+		releaseSvc:        nil, // 通过 SetReleaseService 延迟注入,避免循环依赖
 		activeSubscribers: make(map[string]*ActiveSubscriber),
 		configSubscribers: make(map[string][]string),
 		ctx:               ctx,
@@ -93,6 +97,11 @@ func NewSubscriptionManager(
 		heartbeatTimeout:  heartbeatTimeout,
 		cleanInterval:     5 * time.Minute, // 默认5分钟清理一次
 	}
+}
+
+// SetReleaseService 设置发布管理服务（用于支持灰度发布）
+func (m *SubscriptionManager) SetReleaseService(releaseSvc *ReleaseService) {
+	m.releaseSvc = releaseSvc
 }
 
 // Start 启动订阅管理器
@@ -133,8 +142,11 @@ func (m *SubscriptionManager) Subscribe(ctx context.Context, req *SubscribeReque
 		hlog.Errorf("增加轮询计数失败: %v", err)
 	}
 
-	// 3. 检查配置是否已有变更
-	changed, changedKey, newVersion := m.checkVersionChanges(req.ConfigKeys, req.Versions)
+	// 3. 检查灰度发布,判断该客户端应该使用哪个版本的配置
+	versionToUse := m.determineVersionForClient(ctx, req)
+
+	// 4. 检查配置是否已有变更
+	changed, changedKey, newVersion := m.checkVersionChanges(req.ConfigKeys, req.Versions, versionToUse)
 	if changed {
 		// 配置已变更，立即返回
 		hlog.Infof("配置已变更: %s, 立即返回", changedKey)
@@ -156,7 +168,7 @@ func (m *SubscriptionManager) Subscribe(ctx context.Context, req *SubscribeReque
 		return notifyChan, subscription.ID, nil
 	}
 
-	// 4. 注册活跃订阅者 (内存)
+	// 5. 注册活跃订阅者 (内存)
 	subscriberKey := m.makeSubscriberKey(req.NamespaceID, req.Environment, req.ClientID)
 	notifyChan := make(chan *ChangeNotification, 1)
 
@@ -177,6 +189,51 @@ func (m *SubscriptionManager) Subscribe(ctx context.Context, req *SubscribeReque
 		req.ClientID, req.NamespaceID, req.Environment, req.ConfigKeys)
 
 	return notifyChan, subscription.ID, nil
+}
+
+// determineVersionForClient 判断客户端应该使用哪个版本的配置
+// 如果有灰度发布且客户端匹配灰度规则,返回灰度版本;否则返回nil(使用当前版本)
+func (m *SubscriptionManager) determineVersionForClient(ctx context.Context, req *SubscribeRequest) map[string]string {
+	if m.releaseSvc == nil {
+		return nil
+	}
+
+	// 判断是否应该使用灰度版本
+	release, matched, err := m.releaseSvc.ShouldUseCanaryRelease(
+		ctx,
+		req.NamespaceID,
+		req.Environment,
+		req.ClientID,
+		req.ClientIP,
+	)
+
+	if err != nil {
+		hlog.Errorf("判断灰度发布失败: %v", err)
+		return nil
+	}
+
+	if !matched || release == nil {
+		return nil
+	}
+
+	// 获取灰度版本的配置快照
+	snapshot, err := release.GetConfigSnapshot()
+	if err != nil {
+		hlog.Errorf("获取灰度版本快照失败: %v", err)
+		return nil
+	}
+
+	// 构建灰度版本的配置版本映射
+	canaryVersions := make(map[string]string)
+	for _, item := range snapshot {
+		configKey := fmt.Sprintf("%d:%s", req.NamespaceID, item.Key)
+		canaryVersions[configKey] = ComputeVersion(item.Value)
+	}
+
+	hlog.Infof("客户端匹配灰度规则: clientID=%s, releaseID=%d, version=%d",
+		req.ClientID, release.ID, release.Version)
+
+	return canaryVersions
 }
 
 // Unsubscribe 取消订阅 (移除内存中的活跃订阅)
@@ -336,9 +393,19 @@ func (m *SubscriptionManager) getOrCreateSubscription(ctx context.Context, req *
 
 // checkVersionChanges 检查版本是否有变更
 // 返回: 是否有变更, 变更的配置键, 新版本
-func (m *SubscriptionManager) checkVersionChanges(configKeys []string, clientVersions map[string]string) (bool, string, string) {
+func (m *SubscriptionManager) checkVersionChanges(configKeys []string, clientVersions map[string]string, canaryVersions map[string]string) (bool, string, string) {
 	for _, configKey := range configKeys {
 		clientVersion := clientVersions[configKey]
+
+		// 如果有灰度版本,优先使用灰度版本进行比较
+		if canaryVersions != nil {
+			if canaryVersion, exists := canaryVersions[configKey]; exists {
+				if clientVersion != canaryVersion {
+					return true, configKey, canaryVersion
+				}
+				continue
+			}
+		}
 
 		// 解析 configKey
 		var namespaceID int

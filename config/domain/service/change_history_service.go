@@ -19,6 +19,7 @@ type ChangeHistoryService struct {
 	historyRepo repository.ChangeHistoryRepository // 变更历史仓储
 	configRepo  repository.ConfigRepository        // 配置仓储
 	configSrv   *ConfigService                     // 配置服务（用于回滚时更新配置）
+	maskingSvc  *MaskingService                    // 脱敏服务（用于回滚时重新加密）
 }
 
 // NewChangeHistoryService 创建变更历史服务实例
@@ -26,11 +27,13 @@ func NewChangeHistoryService(
 	historyRepo repository.ChangeHistoryRepository,
 	configRepo repository.ConfigRepository,
 	configSrv *ConfigService,
+	maskingSvc *MaskingService,
 ) *ChangeHistoryService {
 	return &ChangeHistoryService{
 		historyRepo: historyRepo,
 		configRepo:  configRepo,
 		configSrv:   configSrv,
+		maskingSvc:  maskingSvc,
 	}
 }
 
@@ -192,27 +195,40 @@ func (s *ChangeHistoryService) RollbackToHistory(ctx context.Context, req *entit
 		return fmt.Errorf("配置 %d 不存在", targetHistory.ConfigID)
 	}
 
-	// 4. 获取目标版本的值
+	// 4. 获取目标版本的值（历史记录中存储的是明文）
 	targetValue, _ := targetHistory.GetSnapshot()
 
 	// 5. 记录当前状态（用于回滚前的历史记录）
 	oldValue := config.Value
 	oldVersion := config.Version
 
+	// ⚠️ 关键：历史记录中存储的是明文值
+	// 如果是敏感配置，需要重新加密后再存储
+	actualValue := targetValue // 实际要存储到数据库的值
+	if s.maskingSvc != nil && s.maskingSvc.IsSensitiveKey(config.Key) {
+		// 重新加密
+		encryptedValue, err := s.maskingSvc.EncryptValue(targetValue)
+		if err != nil {
+			return fmt.Errorf("回滚时加密配置值失败: %w", err)
+		}
+		actualValue = encryptedValue
+		hlog.Infof("回滚敏感配置，已重新加密: key=%s", config.Key)
+	}
+
 	// 6. 更新配置值
-	// 重新计算内容哈希
-	newHash, err := s.configSrv.ComputeContentHash(targetValue, "md5")
+	// 重新计算内容哈希（基于加密后的值）
+	newHash, err := s.configSrv.ComputeContentHash(actualValue, "md5")
 	if err != nil {
 		return fmt.Errorf("计算内容哈希失败: %w", err)
 	}
-	config.UpdateValue(targetValue, newHash)
+	config.UpdateValue(actualValue, newHash)
 
 	// 7. 保存配置更新
 	if err := s.configRepo.Update(ctx, config); err != nil {
 		return fmt.Errorf("回滚配置失败: %w", err)
 	}
 
-	// 8. 记录回滚操作的变更历史
+	// 8. 记录回滚操作的变更历史（使用明文值记录）
 	rollbackRecord := &entity.ChangeRecord{
 		ConfigID:     config.ID,
 		NamespaceID:  config.NamespaceID,
@@ -220,7 +236,7 @@ func (s *ChangeHistoryService) RollbackToHistory(ctx context.Context, req *entit
 		Environment:  config.Environment,
 		Operation:    entity.OperationRollback,
 		OldValue:     oldValue,
-		NewValue:     targetValue,
+		NewValue:     targetValue, // 历史记录中保存明文，方便后续再次回滚
 		OldVersion:   oldVersion,
 		NewVersion:   config.Version,
 		Operator:     req.Operator,

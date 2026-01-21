@@ -312,6 +312,10 @@ func registerRoutes() {
 	// 注册命名空间管理路由
 	registerNamespaceRoutes()
 	hlog.Info("命名空间管理路由注册成功")
+
+	// 注册发布管理路由
+	registerReleaseRoutes()
+	hlog.Info("发布管理路由注册成功")
 }
 
 // registerConfigRoutes 注册配置管理路由
@@ -334,8 +338,8 @@ func registerConfigRoutes() {
 	tagSvc := domainService.NewConfigTagService(tagRepo, maskingSvc)
 	hlog.Info("标签服务已创建")
 
-	// 4. 创建变更历史领域服务
-	changeHistoryService := domainService.NewChangeHistoryService(changeHistoryRepo, configRepo, nil)
+	// 4. 创建变更历史领域服务（传入脱敏服务）
+	changeHistoryService := domainService.NewChangeHistoryService(changeHistoryRepo, configRepo, nil, maskingSvc)
 
 	// 5. 创建配置领域服务实例（传入配置监听器、变更历史服务、脱敏服务和标签服务）
 	configDomainService := domainService.NewConfigService(
@@ -347,7 +351,7 @@ func registerConfigRoutes() {
 	)
 
 	// 6. 更新变更历史服务的配置服务引用（用于回滚）
-	changeHistoryService = domainService.NewChangeHistoryService(changeHistoryRepo, configRepo, configDomainService)
+	changeHistoryService = domainService.NewChangeHistoryService(changeHistoryRepo, configRepo, configDomainService, maskingSvc)
 
 	// 7. 创建转换器实例（传入脱敏服务和标签服务）
 	configConverter := converter.NewConfigConverter(maskingSvc, tagSvc)
@@ -425,6 +429,72 @@ func registerNamespaceRoutes() {
 			namespaces.GET("/active", namespaceHandler.GetActiveNamespace)       // 获取激活的命名空间
 			namespaces.GET("/all", namespaceHandler.ListAllNamespaces)           // 获取所有命名空间（不分页）
 			namespaces.GET("/active/all", namespaceHandler.ListActiveNamespaces) // 获取所有激活的命名空间（不分页）
+		}
+	}
+}
+
+// registerReleaseRoutes 注册发布管理路由
+func registerReleaseRoutes() {
+	// 初始化依赖层级：Repository -> DomainService -> AppService -> Handler
+
+	// 1. 创建仓储层实例
+	releaseRepo := infraRepository.NewReleaseRepository(db)
+	configRepo := infraRepository.NewConfigRepository(db)
+
+	// 2. 创建脱敏服务（用于配置快照）
+	maskingSvc := domainService.NewMaskingService(
+		cfg.Security.EncryptionKey,
+		cfg.Security.MaskingEnabled,
+	)
+
+	// 3. 创建配置领域服务（用于发布服务）
+	configDomainService := domainService.NewConfigService(
+		configRepo,
+		configListener,
+		nil, // 暂时不需要变更历史服务
+		maskingSvc,
+		nil, // 暂时不需要标签服务
+	)
+
+	// 4. 创建灰度规则引擎
+	canaryEngine := domainService.NewCanaryRuleEngine()
+
+	// 5. 创建发布管理领域服务
+	releaseDomainService := domainService.NewReleaseService(
+		releaseRepo,
+		configRepo,
+		configDomainService,
+		configListener,
+		canaryEngine,
+	)
+
+	// 6. 设置订阅管理器的发布服务引用（用于灰度发布）
+	subscriptionManager.SetReleaseService(releaseDomainService)
+	hlog.Info("订阅管理器已关联发布管理服务，支持灰度发布")
+
+	// 7. 创建转换器实例
+	releaseConverter := converter.NewReleaseConverter()
+
+	// 8. 创建应用服务实例
+	releaseAppService := service.NewReleaseAppService(releaseDomainService, releaseConverter)
+
+	// 9. 创建HTTP处理器实例
+	releaseHandler := configHttp.NewReleaseHandler(releaseAppService)
+
+	// 10. 注册路由
+	api := hertzH.Group("/api/v1")
+	{
+		releases := api.Group("/releases")
+		{
+			releases.POST("", releaseHandler.CreateRelease)                   // 创建发布版本
+			releases.POST("/publish-full", releaseHandler.PublishFull)        // 全量发布
+			releases.POST("/publish-canary", releaseHandler.PublishCanary)    // 灰度发布
+			releases.POST("/rollback", releaseHandler.Rollback)               // 回滚版本
+			releases.GET("", releaseHandler.QueryReleases)                    // 分页查询发布版本
+			releases.GET("/:id", releaseHandler.GetReleaseByID)               // 根据ID查询发布版本
+			releases.GET("/latest", releaseHandler.GetLatestPublishedRelease) // 获取最新已发布版本
+			releases.GET("/list", releaseHandler.ListReleasesByNamespace)     // 查询命名空间下的所有版本
+			releases.POST("/compare", releaseHandler.CompareReleases)         // 对比两个版本
 		}
 	}
 }
