@@ -7,8 +7,8 @@ import (
 	"config-client/config/domain/repository"
 	"config-client/config/infrastructure/converter"
 	infraEntity "config-client/config/infrastructure/entity"
+	"config-client/share/repository/queryutil"
 
-	"github.com/cloudwego/hertz/pkg/common/hlog"
 	"gorm.io/gorm"
 )
 
@@ -16,6 +16,8 @@ import (
 type configTagRepositoryImpl struct {
 	db        *gorm.DB
 	converter *converter.ConfigTagConverter
+	fields    *queryutil.EntityFields[infraEntity.ConfigTagPO] // Lambda 字段查询构建器
+	model     infraEntity.ConfigTagPO                          // 用于类型安全的字段引用
 }
 
 // NewConfigTagRepository 创建配置标签仓储实例
@@ -23,6 +25,7 @@ func NewConfigTagRepository(db *gorm.DB) repository.ConfigTagRepository {
 	return &configTagRepositoryImpl{
 		db:        db,
 		converter: converter.NewConfigTagConverter(),
+		fields:    queryutil.Lambda[infraEntity.ConfigTagPO](), // 初始化 Lambda 构建器
 	}
 }
 
@@ -30,7 +33,6 @@ func NewConfigTagRepository(db *gorm.DB) repository.ConfigTagRepository {
 func (r *configTagRepositoryImpl) Create(ctx context.Context, tag *entity.ConfigTag) error {
 	po := r.converter.ToPO(tag)
 	if err := r.db.WithContext(ctx).Create(po).Error; err != nil {
-		hlog.CtxErrorf(ctx, "创建配置标签失败: %v, tag: %+v", err, tag)
 		return err
 	}
 
@@ -48,7 +50,6 @@ func (r *configTagRepositoryImpl) BatchCreate(ctx context.Context, tags []*entit
 
 	poList := r.converter.ToPOList(tags)
 	if err := r.db.WithContext(ctx).Create(&poList).Error; err != nil {
-		hlog.CtxErrorf(ctx, "批量创建配置标签失败: %v, count: %d", err, len(tags))
 		return err
 	}
 
@@ -64,7 +65,6 @@ func (r *configTagRepositoryImpl) BatchCreate(ctx context.Context, tags []*entit
 func (r *configTagRepositoryImpl) Delete(ctx context.Context, id int) error {
 	result := r.db.WithContext(ctx).Delete(&infraEntity.ConfigTagPO{}, id)
 	if result.Error != nil {
-		hlog.CtxErrorf(ctx, "删除配置标签失败: %v, id: %d", result.Error, id)
 		return result.Error
 	}
 	return nil
@@ -72,12 +72,12 @@ func (r *configTagRepositoryImpl) Delete(ctx context.Context, id int) error {
 
 // DeleteByConfigIDAndTagKey 根据配置ID和标签键删除标签
 func (r *configTagRepositoryImpl) DeleteByConfigIDAndTagKey(ctx context.Context, configID int, tagKey string) error {
-	result := r.db.WithContext(ctx).
-		Where("config_id = ? AND tag_key = ?", configID, tagKey).
-		Delete(&infraEntity.ConfigTagPO{})
+	db := r.db.WithContext(ctx)
+	db = queryutil.WhereEq(db, r.fields.Of(&r.model.ConfigID).GetColumnName(), configID)
+	db = queryutil.WhereEq(db, r.fields.Of(&r.model.TagKey).GetColumnName(), tagKey)
+	result := db.Delete(&infraEntity.ConfigTagPO{})
 
 	if result.Error != nil {
-		hlog.CtxErrorf(ctx, "删除配置标签失败: %v, configID: %d, tagKey: %s", result.Error, configID, tagKey)
 		return result.Error
 	}
 	return nil
@@ -85,12 +85,11 @@ func (r *configTagRepositoryImpl) DeleteByConfigIDAndTagKey(ctx context.Context,
 
 // DeleteByConfigID 删除某个配置的所有标签
 func (r *configTagRepositoryImpl) DeleteByConfigID(ctx context.Context, configID int) error {
-	result := r.db.WithContext(ctx).
-		Where("config_id = ?", configID).
-		Delete(&infraEntity.ConfigTagPO{})
+	db := r.db.WithContext(ctx)
+	db = queryutil.WhereEq(db, r.fields.Of(&r.model.ConfigID).GetColumnName(), configID)
+	result := db.Delete(&infraEntity.ConfigTagPO{})
 
 	if result.Error != nil {
-		hlog.CtxErrorf(ctx, "删除配置所有标签失败: %v, configID: %d", result.Error, configID)
 		return result.Error
 	}
 	return nil
@@ -99,13 +98,13 @@ func (r *configTagRepositoryImpl) DeleteByConfigID(ctx context.Context, configID
 // FindByConfigID 查询某个配置的所有标签
 func (r *configTagRepositoryImpl) FindByConfigID(ctx context.Context, configID int) ([]*entity.ConfigTag, error) {
 	var poList []*infraEntity.ConfigTagPO
-	err := r.db.WithContext(ctx).
-		Where("config_id = ?", configID).
-		Order("tag_key ASC, tag_value ASC").
-		Find(&poList).Error
+	db := r.db.WithContext(ctx)
+	db = queryutil.WhereEq(db, r.fields.Of(&r.model.ConfigID).GetColumnName(), configID)
+	db = queryutil.OrderBy(db, r.fields.Of(&r.model.TagKey).GetColumnName())
+	db = queryutil.OrderBy(db, r.fields.Of(&r.model.TagValue).GetColumnName())
+	err := db.Find(&poList).Error
 
 	if err != nil {
-		hlog.CtxErrorf(ctx, "查询配置标签失败: %v, configID: %d", err, configID)
 		return nil, err
 	}
 
@@ -115,12 +114,11 @@ func (r *configTagRepositoryImpl) FindByConfigID(ctx context.Context, configID i
 // FindByTagKey 根据标签键查询标签
 func (r *configTagRepositoryImpl) FindByTagKey(ctx context.Context, tagKey string) ([]*entity.ConfigTag, error) {
 	var poList []*infraEntity.ConfigTagPO
-	err := r.db.WithContext(ctx).
-		Where("tag_key = ?", tagKey).
-		Find(&poList).Error
+	db := r.db.WithContext(ctx)
+	db = queryutil.WhereEq(db, r.fields.Of(&r.model.TagKey).GetColumnName(), tagKey)
+	err := db.Find(&poList).Error
 
 	if err != nil {
-		hlog.CtxErrorf(ctx, "根据标签键查询失败: %v, tagKey: %s", err, tagKey)
 		return nil, err
 	}
 
@@ -130,12 +128,12 @@ func (r *configTagRepositoryImpl) FindByTagKey(ctx context.Context, tagKey strin
 // FindByTagKeyValue 根据标签键值查询标签
 func (r *configTagRepositoryImpl) FindByTagKeyValue(ctx context.Context, tagKey, tagValue string) ([]*entity.ConfigTag, error) {
 	var poList []*infraEntity.ConfigTagPO
-	err := r.db.WithContext(ctx).
-		Where("tag_key = ? AND tag_value = ?", tagKey, tagValue).
-		Find(&poList).Error
+	db := r.db.WithContext(ctx)
+	db = queryutil.WhereEq(db, r.fields.Of(&r.model.TagKey).GetColumnName(), tagKey)
+	db = queryutil.WhereEq(db, r.fields.Of(&r.model.TagValue).GetColumnName(), tagValue)
+	err := db.Find(&poList).Error
 
 	if err != nil {
-		hlog.CtxErrorf(ctx, "根据标签键值查询失败: %v, tagKey: %s, tagValue: %s", err, tagKey, tagValue)
 		return nil, err
 	}
 
@@ -145,20 +143,20 @@ func (r *configTagRepositoryImpl) FindByTagKeyValue(ctx context.Context, tagKey,
 // ExistsByConfigIDAndTag 检查某个配置是否已存在指定标签
 func (r *configTagRepositoryImpl) ExistsByConfigIDAndTag(ctx context.Context, configID int, tagKey, tagValue string) (bool, error) {
 	var count int64
-	err := r.db.WithContext(ctx).
-		Model(&infraEntity.ConfigTagPO{}).
-		Where("config_id = ? AND tag_key = ? AND tag_value = ?", configID, tagKey, tagValue).
-		Count(&count).Error
+	db := r.db.WithContext(ctx).Model(&infraEntity.ConfigTagPO{})
+	db = queryutil.WhereEq(db, r.fields.Of(&r.model.ConfigID).GetColumnName(), configID)
+	db = queryutil.WhereEq(db, r.fields.Of(&r.model.TagKey).GetColumnName(), tagKey)
+	db = queryutil.WhereEq(db, r.fields.Of(&r.model.TagValue).GetColumnName(), tagValue)
+	err := db.Count(&count).Error
 
 	if err != nil {
-		hlog.CtxErrorf(ctx, "检查标签存在性失败: %v, configID: %d, tag: %s:%s", err, configID, tagKey, tagValue)
 		return false, err
 	}
 
 	return count > 0, nil
 }
 
-// FindConfigIDsByTags 根据标签查询配置ID列表（支持多个标签的AND查询）
+// FindConfigIDsByTags 根据标签查询配置ID列表(支持多个标签的AND查询)
 func (r *configTagRepositoryImpl) FindConfigIDsByTags(ctx context.Context, tags []entity.TagInput) ([]int, error) {
 	if len(tags) == 0 {
 		return []int{}, nil
@@ -172,24 +170,22 @@ func (r *configTagRepositoryImpl) FindConfigIDsByTags(ctx context.Context, tags 
 	var configIDs []int
 
 	// 第一个标签作为基础查询
-	query := r.db.WithContext(ctx).
-		Model(&infraEntity.ConfigTagPO{}).
-		Select("config_id").
-		Where("tag_key = ? AND tag_value = ?", tags[0].TagKey, tags[0].TagValue)
+	db := r.db.WithContext(ctx).Model(&infraEntity.ConfigTagPO{}).Select("config_id")
+	db = queryutil.WhereEq(db, r.fields.Of(&r.model.TagKey).GetColumnName(), tags[0].TagKey)
+	db = queryutil.WhereEq(db, r.fields.Of(&r.model.TagValue).GetColumnName(), tags[0].TagValue)
 
 	// 后续标签作为 INTERSECT 查询
 	for i := 1; i < len(tags); i++ {
-		subQuery := r.db.Model(&infraEntity.ConfigTagPO{}).
-			Select("config_id").
-			Where("tag_key = ? AND tag_value = ?", tags[i].TagKey, tags[i].TagValue)
+		subQuery := r.db.Model(&infraEntity.ConfigTagPO{}).Select("config_id")
+		subQuery = queryutil.WhereEq(subQuery, r.fields.Of(&r.model.TagKey).GetColumnName(), tags[i].TagKey)
+		subQuery = queryutil.WhereEq(subQuery, r.fields.Of(&r.model.TagValue).GetColumnName(), tags[i].TagValue)
 
-		// GORM 不直接支持 INTERSECT，使用 IN 子查询实现
-		query = query.Where("config_id IN (?)", subQuery)
+		// GORM 不直接支持 INTERSECT,使用 IN 子查询实现
+		db = queryutil.WhereIn(db, "config_id", subQuery)
 	}
 
-	err := query.Pluck("config_id", &configIDs).Error
+	err := db.Pluck("config_id", &configIDs).Error
 	if err != nil {
-		hlog.CtxErrorf(ctx, "根据标签查询配置ID失败: %v, tags: %+v", err, tags)
 		return nil, err
 	}
 

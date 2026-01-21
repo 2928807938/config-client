@@ -120,9 +120,11 @@ func (r *ReleaseRepositoryImpl) Page(ctx context.Context, request *shareRepo.Pag
 // FindByNamespaceAndVersion 根据命名空间和版本号查询发布版本
 func (r *ReleaseRepositoryImpl) FindByNamespaceAndVersion(ctx context.Context, namespaceID int, version int, environment string) (*domainEntity.Release, error) {
 	var po infraEntity.ReleasePO
-	err := r.db.WithContext(ctx).
-		Where("namespace_id = ? AND version = ? AND environment = ?", namespaceID, version, environment).
-		First(&po).Error
+	db := r.db.WithContext(ctx)
+	db = queryutil.WhereEq(db, r.fields.Of(&r.model.NamespaceID).GetColumnName(), namespaceID)
+	db = queryutil.WhereEq(db, r.fields.Of(&r.model.Version).GetColumnName(), version)
+	db = queryutil.WhereEq(db, r.fields.Of(&r.model.Environment).GetColumnName(), environment)
+	err := db.First(&po).Error
 
 	if err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
@@ -136,9 +138,11 @@ func (r *ReleaseRepositoryImpl) FindByNamespaceAndVersion(ctx context.Context, n
 // FindByVersionName 根据版本名称查询发布版本
 func (r *ReleaseRepositoryImpl) FindByVersionName(ctx context.Context, namespaceID int, versionName string, environment string) (*domainEntity.Release, error) {
 	var po infraEntity.ReleasePO
-	err := r.db.WithContext(ctx).
-		Where("namespace_id = ? AND version_name = ? AND environment = ?", namespaceID, versionName, environment).
-		First(&po).Error
+	db := r.db.WithContext(ctx)
+	db = queryutil.WhereEq(db, r.fields.Of(&r.model.NamespaceID).GetColumnName(), namespaceID)
+	db = queryutil.WhereEq(db, r.fields.Of(&r.model.VersionName).GetColumnName(), versionName)
+	db = queryutil.WhereEq(db, r.fields.Of(&r.model.Environment).GetColumnName(), environment)
+	err := db.First(&po).Error
 
 	if err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
@@ -152,10 +156,12 @@ func (r *ReleaseRepositoryImpl) FindByVersionName(ctx context.Context, namespace
 // FindLatestPublishedRelease 查询最新的已发布版本
 func (r *ReleaseRepositoryImpl) FindLatestPublishedRelease(ctx context.Context, namespaceID int, environment string) (*domainEntity.Release, error) {
 	var po infraEntity.ReleasePO
-	err := r.db.WithContext(ctx).
-		Where("namespace_id = ? AND environment = ? AND status = ?", namespaceID, environment, domainEntity.ReleaseStatusPublished).
-		Order("version DESC").
-		First(&po).Error
+	db := r.db.WithContext(ctx)
+	db = queryutil.WhereEq(db, r.fields.Of(&r.model.NamespaceID).GetColumnName(), namespaceID)
+	db = queryutil.WhereEq(db, r.fields.Of(&r.model.Environment).GetColumnName(), environment)
+	db = queryutil.WhereEq(db, r.fields.Of(&r.model.Status).GetColumnName(), domainEntity.ReleaseStatusPublished)
+	db = queryutil.OrderByDesc(db, r.fields.Of(&r.model.Version).GetColumnName())
+	err := db.First(&po).Error
 
 	if err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
@@ -169,10 +175,11 @@ func (r *ReleaseRepositoryImpl) FindLatestPublishedRelease(ctx context.Context, 
 // FindByNamespace 查询指定命名空间的所有发布版本
 func (r *ReleaseRepositoryImpl) FindByNamespace(ctx context.Context, namespaceID int, environment string) ([]*domainEntity.Release, error) {
 	var pos []*infraEntity.ReleasePO
-	err := r.db.WithContext(ctx).
-		Where("namespace_id = ? AND environment = ?", namespaceID, environment).
-		Order("version DESC").
-		Find(&pos).Error
+	db := r.db.WithContext(ctx)
+	db = queryutil.WhereEq(db, r.fields.Of(&r.model.NamespaceID).GetColumnName(), namespaceID)
+	db = queryutil.WhereEq(db, r.fields.Of(&r.model.Environment).GetColumnName(), environment)
+	db = queryutil.OrderByDesc(db, r.fields.Of(&r.model.Version).GetColumnName())
+	err := db.Find(&pos).Error
 
 	if err != nil {
 		return nil, err
@@ -183,10 +190,12 @@ func (r *ReleaseRepositoryImpl) FindByNamespace(ctx context.Context, namespaceID
 // FindByStatus 根据状态查询发布版本列表
 func (r *ReleaseRepositoryImpl) FindByStatus(ctx context.Context, namespaceID int, environment string, status domainEntity.ReleaseStatus) ([]*domainEntity.Release, error) {
 	var pos []*infraEntity.ReleasePO
-	err := r.db.WithContext(ctx).
-		Where("namespace_id = ? AND environment = ? AND status = ?", namespaceID, environment, status).
-		Order("version DESC").
-		Find(&pos).Error
+	db := r.db.WithContext(ctx)
+	db = queryutil.WhereEq(db, r.fields.Of(&r.model.NamespaceID).GetColumnName(), namespaceID)
+	db = queryutil.WhereEq(db, r.fields.Of(&r.model.Environment).GetColumnName(), environment)
+	db = queryutil.WhereEq(db, r.fields.Of(&r.model.Status).GetColumnName(), status)
+	db = queryutil.OrderByDesc(db, r.fields.Of(&r.model.Version).GetColumnName())
+	err := db.Find(&pos).Error
 
 	if err != nil {
 		return nil, err
@@ -200,19 +209,19 @@ func (r *ReleaseRepositoryImpl) QueryByParams(ctx context.Context, params *repos
 
 	// 构建查询条件
 	if params.NamespaceID != nil {
-		db = db.Where("namespace_id = ?", *params.NamespaceID)
+		db = queryutil.WhereEq(db, r.fields.Of(&r.model.NamespaceID).GetColumnName(), *params.NamespaceID)
 	}
 	if params.Environment != nil {
-		db = db.Where("environment = ?", *params.Environment)
+		db = queryutil.WhereEq(db, r.fields.Of(&r.model.Environment).GetColumnName(), *params.Environment)
 	}
 	if params.Status != nil {
-		db = db.Where("status = ?", *params.Status)
+		db = queryutil.WhereEq(db, r.fields.Of(&r.model.Status).GetColumnName(), *params.Status)
 	}
 	if params.ReleaseType != nil {
-		db = db.Where("release_type = ?", *params.ReleaseType)
+		db = queryutil.WhereEq(db, r.fields.Of(&r.model.ReleaseType).GetColumnName(), *params.ReleaseType)
 	}
-	if params.VersionName != nil {
-		db = db.Where("version_name LIKE ?", "%"+*params.VersionName+"%")
+	if params.VersionName != nil && *params.VersionName != "" {
+		db = queryutil.WhereLike(db, r.fields.Of(&r.model.VersionName).GetColumnName(), "%"+*params.VersionName+"%")
 	}
 
 	// 统计总数
@@ -233,7 +242,7 @@ func (r *ReleaseRepositoryImpl) QueryByParams(ctx context.Context, params *repos
 	if params.OrderBy != "" {
 		db = db.Order(params.OrderBy)
 	} else {
-		db = db.Order("version DESC")
+		db = queryutil.OrderByDesc(db, r.fields.Of(&r.model.Version).GetColumnName())
 	}
 
 	// 应用分页
@@ -253,11 +262,10 @@ func (r *ReleaseRepositoryImpl) QueryByParams(ctx context.Context, params *repos
 // GetNextVersion 获取下一个版本号
 func (r *ReleaseRepositoryImpl) GetNextVersion(ctx context.Context, namespaceID int, environment string) (int, error) {
 	var maxVersion int
-	err := r.db.WithContext(ctx).
-		Model(&infraEntity.ReleasePO{}).
-		Where("namespace_id = ? AND environment = ?", namespaceID, environment).
-		Select("COALESCE(MAX(version), 0)").
-		Scan(&maxVersion).Error
+	db := r.db.WithContext(ctx).Model(&infraEntity.ReleasePO{})
+	db = queryutil.WhereEq(db, r.fields.Of(&r.model.NamespaceID).GetColumnName(), namespaceID)
+	db = queryutil.WhereEq(db, r.fields.Of(&r.model.Environment).GetColumnName(), environment)
+	err := db.Select("COALESCE(MAX(version), 0)").Scan(&maxVersion).Error
 
 	if err != nil {
 		return 0, err
@@ -268,20 +276,22 @@ func (r *ReleaseRepositoryImpl) GetNextVersion(ctx context.Context, namespaceID 
 // CountByNamespace 统计指定命名空间的发布版本数量
 func (r *ReleaseRepositoryImpl) CountByNamespace(ctx context.Context, namespaceID int, environment string) (int64, error) {
 	var count int64
-	err := r.db.WithContext(ctx).
-		Model(&infraEntity.ReleasePO{}).
-		Where("namespace_id = ? AND environment = ?", namespaceID, environment).
-		Count(&count).Error
+	db := r.db.WithContext(ctx).Model(&infraEntity.ReleasePO{})
+	db = queryutil.WhereEq(db, r.fields.Of(&r.model.NamespaceID).GetColumnName(), namespaceID)
+	db = queryutil.WhereEq(db, r.fields.Of(&r.model.Environment).GetColumnName(), environment)
+	err := db.Count(&count).Error
 	return count, err
 }
 
 // FindReleasesInTimeRange 查询指定时间范围内的发布版本
 func (r *ReleaseRepositoryImpl) FindReleasesInTimeRange(ctx context.Context, namespaceID int, environment string, startTime, endTime time.Time) ([]*domainEntity.Release, error) {
 	var pos []*infraEntity.ReleasePO
-	err := r.db.WithContext(ctx).
-		Where("namespace_id = ? AND environment = ? AND released_at BETWEEN ? AND ?", namespaceID, environment, startTime, endTime).
-		Order("released_at DESC").
-		Find(&pos).Error
+	db := r.db.WithContext(ctx)
+	db = queryutil.WhereEq(db, r.fields.Of(&r.model.NamespaceID).GetColumnName(), namespaceID)
+	db = queryutil.WhereEq(db, r.fields.Of(&r.model.Environment).GetColumnName(), environment)
+	db = queryutil.WhereBetween(db, r.fields.Of(&r.model.ReleasedAt).GetColumnName(), startTime, endTime)
+	db = queryutil.OrderByDesc(db, r.fields.Of(&r.model.ReleasedAt).GetColumnName())
+	err := db.Find(&pos).Error
 
 	if err != nil {
 		return nil, err
@@ -292,9 +302,10 @@ func (r *ReleaseRepositoryImpl) FindReleasesInTimeRange(ctx context.Context, nam
 // ExistsByVersion 判断指定版本是否存在
 func (r *ReleaseRepositoryImpl) ExistsByVersion(ctx context.Context, namespaceID int, version int, environment string) (bool, error) {
 	var count int64
-	err := r.db.WithContext(ctx).
-		Model(&infraEntity.ReleasePO{}).
-		Where("namespace_id = ? AND version = ? AND environment = ?", namespaceID, version, environment).
-		Count(&count).Error
+	db := r.db.WithContext(ctx).Model(&infraEntity.ReleasePO{})
+	db = queryutil.WhereEq(db, r.fields.Of(&r.model.NamespaceID).GetColumnName(), namespaceID)
+	db = queryutil.WhereEq(db, r.fields.Of(&r.model.Version).GetColumnName(), version)
+	db = queryutil.WhereEq(db, r.fields.Of(&r.model.Environment).GetColumnName(), environment)
+	err := db.Count(&count).Error
 	return count > 0, err
 }

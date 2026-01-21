@@ -12,12 +12,15 @@ import (
 	"config-client/config/infrastructure/converter"
 	infraEntity "config-client/config/infrastructure/entity"
 	shareRepo "config-client/share/repository"
+	"config-client/share/repository/queryutil"
 )
 
 // ChangeHistoryRepositoryImpl 变更历史仓储实现
 type ChangeHistoryRepositoryImpl struct {
 	db        *gorm.DB
 	converter *converter.ChangeHistoryConverter
+	fields    *queryutil.EntityFields[infraEntity.ChangeHistoryPO] // Lambda 字段查询构建器
+	model     infraEntity.ChangeHistoryPO                          // 用于类型安全的字段引用
 }
 
 // NewChangeHistoryRepository 创建变更历史仓储实例
@@ -25,6 +28,7 @@ func NewChangeHistoryRepository(db *gorm.DB) repository.ChangeHistoryRepository 
 	return &ChangeHistoryRepositoryImpl{
 		db:        db,
 		converter: converter.NewChangeHistoryConverter(),
+		fields:    queryutil.Lambda[infraEntity.ChangeHistoryPO](), // 初始化 Lambda 构建器
 	}
 }
 
@@ -47,18 +51,18 @@ func (r *ChangeHistoryRepositoryImpl) BatchSave(ctx context.Context, histories [
 
 // ==================== 读操作实现 ====================
 
-// FindByConfigID 查询指定配置的所有变更历史（按时间倒序）
+// FindByConfigID 查询指定配置的所有变更历史(按时间倒序)
 func (r *ChangeHistoryRepositoryImpl) FindByConfigID(ctx context.Context, configID int, limit int) ([]*domainEntity.ChangeHistory, error) {
 	var pos []*infraEntity.ChangeHistoryPO
-	query := r.db.WithContext(ctx).
-		Where("config_id = ?", configID).
-		Order("created_at DESC")
+	db := r.db.WithContext(ctx)
+	db = queryutil.WhereEq(db, r.fields.Of(&r.model.ConfigID).GetColumnName(), configID)
+	db = queryutil.OrderByDesc(db, r.fields.Of(&r.model.CreatedAt).GetColumnName())
 
 	if limit > 0 {
-		query = query.Limit(limit)
+		db = db.Limit(limit)
 	}
 
-	err := query.Find(&pos).Error
+	err := db.Find(&pos).Error
 	if err != nil {
 		return nil, err
 	}
@@ -69,15 +73,16 @@ func (r *ChangeHistoryRepositoryImpl) FindByConfigID(ctx context.Context, config
 // FindByNamespaceAndKey 查询指定命名空间和配置键的变更历史
 func (r *ChangeHistoryRepositoryImpl) FindByNamespaceAndKey(ctx context.Context, namespaceID int, configKey string, limit int) ([]*domainEntity.ChangeHistory, error) {
 	var pos []*infraEntity.ChangeHistoryPO
-	query := r.db.WithContext(ctx).
-		Where("namespace_id = ? AND config_key = ?", namespaceID, configKey).
-		Order("created_at DESC")
+	db := r.db.WithContext(ctx)
+	db = queryutil.WhereEq(db, r.fields.Of(&r.model.NamespaceID).GetColumnName(), namespaceID)
+	db = queryutil.WhereEq(db, r.fields.Of(&r.model.ConfigKey).GetColumnName(), configKey)
+	db = queryutil.OrderByDesc(db, r.fields.Of(&r.model.CreatedAt).GetColumnName())
 
 	if limit > 0 {
-		query = query.Limit(limit)
+		db = db.Limit(limit)
 	}
 
-	err := query.Find(&pos).Error
+	err := db.Find(&pos).Error
 	if err != nil {
 		return nil, err
 	}
@@ -101,10 +106,11 @@ func (r *ChangeHistoryRepositoryImpl) FindByID(ctx context.Context, id int) (*do
 // FindLatestByConfigID 查询指定配置的最新变更记录
 func (r *ChangeHistoryRepositoryImpl) FindLatestByConfigID(ctx context.Context, configID int) (*domainEntity.ChangeHistory, error) {
 	var po infraEntity.ChangeHistoryPO
-	err := r.db.WithContext(ctx).
-		Where("config_id = ?", configID).
-		Order("created_at DESC").
-		First(&po).Error
+	db := r.db.WithContext(ctx)
+	db = queryutil.WhereEq(db, r.fields.Of(&r.model.ConfigID).GetColumnName(), configID)
+	db = queryutil.OrderByDesc(db, r.fields.Of(&r.model.CreatedAt).GetColumnName())
+	err := db.First(&po).Error
+
 	if err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return nil, nil
@@ -116,8 +122,8 @@ func (r *ChangeHistoryRepositoryImpl) FindLatestByConfigID(ctx context.Context, 
 
 // FindByOperator 查询指定操作人的变更记录
 func (r *ChangeHistoryRepositoryImpl) FindByOperator(ctx context.Context, operator string, page, size int) (*shareRepo.PageResult[*domainEntity.ChangeHistory], error) {
-	db := r.db.WithContext(ctx).Model(&infraEntity.ChangeHistoryPO{}).
-		Where("operator = ?", operator)
+	db := r.db.WithContext(ctx).Model(&infraEntity.ChangeHistoryPO{})
+	db = queryutil.WhereEq(db, r.fields.Of(&r.model.Operator).GetColumnName(), operator)
 
 	// 统计总数
 	var total int64
@@ -127,7 +133,8 @@ func (r *ChangeHistoryRepositoryImpl) FindByOperator(ctx context.Context, operat
 
 	// 应用分页
 	offset := (page - 1) * size
-	db = db.Offset(offset).Limit(size).Order("created_at DESC")
+	db = db.Offset(offset).Limit(size)
+	db = queryutil.OrderByDesc(db, r.fields.Of(&r.model.CreatedAt).GetColumnName())
 
 	// 查询数据
 	var pos []*infraEntity.ChangeHistoryPO
@@ -145,30 +152,30 @@ func (r *ChangeHistoryRepositoryImpl) QueryByParams(ctx context.Context, params 
 
 	// 构建查询条件
 	if params.ConfigID != nil {
-		db = db.Where("config_id = ?", *params.ConfigID)
+		db = queryutil.WhereEq(db, r.fields.Of(&r.model.ConfigID).GetColumnName(), *params.ConfigID)
 	}
 	if params.NamespaceID != nil {
-		db = db.Where("namespace_id = ?", *params.NamespaceID)
+		db = queryutil.WhereEq(db, r.fields.Of(&r.model.NamespaceID).GetColumnName(), *params.NamespaceID)
 	}
 	if params.ConfigKey != nil && *params.ConfigKey != "" {
-		db = db.Where("config_key LIKE ?", "%"+*params.ConfigKey+"%")
+		db = queryutil.WhereLike(db, r.fields.Of(&r.model.ConfigKey).GetColumnName(), "%"+*params.ConfigKey+"%")
 	}
 	if params.Operation != nil && *params.Operation != "" {
-		db = db.Where("operation = ?", *params.Operation)
+		db = queryutil.WhereEq(db, r.fields.Of(&r.model.Operation).GetColumnName(), *params.Operation)
 	}
 	if params.Operator != nil && *params.Operator != "" {
-		db = db.Where("operator LIKE ?", "%"+*params.Operator+"%")
+		db = queryutil.WhereLike(db, r.fields.Of(&r.model.Operator).GetColumnName(), "%"+*params.Operator+"%")
 	}
 	if params.StartTime != nil {
 		startTime, err := time.Parse("2006-01-02 15:04:05", *params.StartTime)
 		if err == nil {
-			db = db.Where("created_at >= ?", startTime)
+			db = queryutil.WhereGte(db, r.fields.Of(&r.model.CreatedAt).GetColumnName(), startTime)
 		}
 	}
 	if params.EndTime != nil {
 		endTime, err := time.Parse("2006-01-02 15:04:05", *params.EndTime)
 		if err == nil {
-			db = db.Where("created_at <= ?", endTime)
+			db = queryutil.WhereLte(db, r.fields.Of(&r.model.CreatedAt).GetColumnName(), endTime)
 		}
 	}
 
@@ -179,7 +186,7 @@ func (r *ChangeHistoryRepositoryImpl) QueryByParams(ctx context.Context, params 
 	}
 
 	// 默认按时间倒序
-	db = db.Order("created_at DESC")
+	db = queryutil.OrderByDesc(db, r.fields.Of(&r.model.CreatedAt).GetColumnName())
 
 	// 应用分页
 	offset := (params.Page - 1) * params.Size
@@ -227,7 +234,9 @@ func (r *ChangeHistoryRepositoryImpl) Delete(ctx context.Context, id int) error 
 // List 查询全部列表
 func (r *ChangeHistoryRepositoryImpl) List(ctx context.Context) ([]*domainEntity.ChangeHistory, error) {
 	var pos []*infraEntity.ChangeHistoryPO
-	err := r.db.WithContext(ctx).Order("created_at DESC").Find(&pos).Error
+	db := r.db.WithContext(ctx)
+	db = queryutil.OrderByDesc(db, r.fields.Of(&r.model.CreatedAt).GetColumnName())
+	err := db.Find(&pos).Error
 	if err != nil {
 		return nil, err
 	}
@@ -248,18 +257,18 @@ func (r *ChangeHistoryRepositoryImpl) Page(ctx context.Context, request *shareRe
 // CountByConfigID 统计指定配置的变更次数
 func (r *ChangeHistoryRepositoryImpl) CountByConfigID(ctx context.Context, configID int) (int64, error) {
 	var count int64
-	err := r.db.WithContext(ctx).Model(&infraEntity.ChangeHistoryPO{}).
-		Where("config_id = ?", configID).
-		Count(&count).Error
+	db := r.db.WithContext(ctx).Model(&infraEntity.ChangeHistoryPO{})
+	db = queryutil.WhereEq(db, r.fields.Of(&r.model.ConfigID).GetColumnName(), configID)
+	err := db.Count(&count).Error
 	return count, err
 }
 
 // CountByOperation 统计指定操作类型的变更次数
 func (r *ChangeHistoryRepositoryImpl) CountByOperation(ctx context.Context, operation string) (int64, error) {
 	var count int64
-	err := r.db.WithContext(ctx).Model(&infraEntity.ChangeHistoryPO{}).
-		Where("operation = ?", operation).
-		Count(&count).Error
+	db := r.db.WithContext(ctx).Model(&infraEntity.ChangeHistoryPO{})
+	db = queryutil.WhereEq(db, r.fields.Of(&r.model.Operation).GetColumnName(), operation)
+	err := db.Count(&count).Error
 	return count, err
 }
 
@@ -270,12 +279,12 @@ func (r *ChangeHistoryRepositoryImpl) CountByTimeRange(ctx context.Context, star
 
 	if startTime != "" {
 		if t, err := time.Parse("2006-01-02 15:04:05", startTime); err == nil {
-			db = db.Where("created_at >= ?", t)
+			db = queryutil.WhereGte(db, r.fields.Of(&r.model.CreatedAt).GetColumnName(), t)
 		}
 	}
 	if endTime != "" {
 		if t, err := time.Parse("2006-01-02 15:04:05", endTime); err == nil {
-			db = db.Where("created_at <= ?", t)
+			db = queryutil.WhereLte(db, r.fields.Of(&r.model.CreatedAt).GetColumnName(), t)
 		}
 	}
 
