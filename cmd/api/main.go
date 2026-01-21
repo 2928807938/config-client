@@ -289,9 +289,9 @@ func registerRoutes() {
 		})
 	})
 
-	// 注册配置管理路由
+	// 注册配置管理路由（包含变更历史路由）
 	registerConfigRoutes()
-	hlog.Info("配置管理路由注册成功")
+	hlog.Info("配置管理路由和变更历史路由注册成功")
 
 	// 注册命名空间管理路由
 	registerNamespaceRoutes()
@@ -304,24 +304,33 @@ func registerConfigRoutes() {
 
 	// 1. 创建仓储层实例
 	configRepo := infraRepository.NewConfigRepository(db)
+	changeHistoryRepo := infraRepository.NewChangeHistoryRepository(db)
 
-	// 2. 创建领域服务实例（传入配置监听器）
-	configDomainService := domainService.NewConfigService(configRepo, configListener)
+	// 2. 创建变更历史领域服务
+	changeHistoryService := domainService.NewChangeHistoryService(changeHistoryRepo, configRepo, nil)
 
-	// 3. 创建转换器实例
+	// 3. 创建配置领域服务实例（传入配置监听器和变更历史服务）
+	configDomainService := domainService.NewConfigService(configRepo, configListener, changeHistoryService)
+
+	// 4. 更新变更历史服务的配置服务引用（用于回滚）
+	changeHistoryService = domainService.NewChangeHistoryService(changeHistoryRepo, configRepo, configDomainService)
+
+	// 5. 创建转换器实例
 	configConverter := converter.NewConfigConverter()
 
-	// 4. 创建应用服务实例
+	// 6. 创建应用服务实例
 	configAppService := service.NewConfigAppService(configDomainService, configConverter)
+	changeHistoryAppService := service.NewChangeHistoryAppService(changeHistoryService)
 
-	// 5. 创建HTTP处理器实例
+	// 7. 创建HTTP处理器实例
 	configHandler := configHttp.NewConfigHandler(configAppService)
+	changeHistoryHandler := configHttp.NewChangeHistoryHandler(changeHistoryAppService)
 
-	// 6. 创建长轮询应用服务
+	// 8. 创建长轮询应用服务
 	longPollingAppService := service.NewLongPollingAppService(longPollingService, configRepo)
 	longPollingHandler := configHttp.NewLongPollingHandler(longPollingAppService)
 
-	// 7. 注册路由
+	// 9. 注册路由
 	api := hertzH.Group("/api/v1")
 	{
 		configs := api.Group("/configs")
@@ -332,6 +341,16 @@ func registerConfigRoutes() {
 			configs.POST("/get", configHandler.GetConfigByID) // 根据ID获取配置（ID在请求体中）
 			configs.DELETE("", configHandler.DeleteConfig)    // 删除配置（ID在请求体中）
 			configs.POST("/watch", longPollingHandler.Watch)  // 长轮询监听配置变更
+		}
+
+		history := api.Group("/history")
+		{
+			history.GET("", changeHistoryHandler.QueryHistory)             // 分页查询变更历史
+			history.POST("/get", changeHistoryHandler.GetHistoryByID)      // 根据ID查询变更记录（ID在请求体中）
+			history.GET("/statistics", changeHistoryHandler.GetStatistics) // 获取变更统计
+			history.GET("/config", changeHistoryHandler.GetConfigHistory)  // 获取配置变更历史
+			history.POST("/compare", changeHistoryHandler.CompareVersions) // 对比版本
+			history.POST("/rollback", changeHistoryHandler.Rollback)       // 回滚配置
 		}
 	}
 }

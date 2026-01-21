@@ -13,6 +13,7 @@ import (
 	domainErrors "config-client/config/domain/errors"
 	"config-client/config/domain/listener"
 	"config-client/config/domain/repository"
+	shareConstants "config-client/share/constants"
 	shareRepo "config-client/share/repository"
 
 	"github.com/cloudwego/hertz/pkg/common/hlog"
@@ -25,16 +26,23 @@ import (
 // - 配置的验证和校验
 // - 配置的版本管理
 // - 配置的哈希计算和验证
+// - 配置变更历史记录
 type ConfigService struct {
-	configRepo repository.ConfigRepository
-	listener   listener.ConfigListener // 配置变更监听器（可选）
+	configRepo       repository.ConfigRepository
+	listener         listener.ConfigListener // 配置变更监听器（可选）
+	changeHistorySvc *ChangeHistoryService   // 变更历史服务（可选）
 }
 
 // NewConfigService 创建配置领域服务实例
-func NewConfigService(configRepo repository.ConfigRepository, listener listener.ConfigListener) *ConfigService {
+func NewConfigService(
+	configRepo repository.ConfigRepository,
+	listener listener.ConfigListener,
+	changeHistorySvc *ChangeHistoryService,
+) *ConfigService {
 	return &ConfigService{
-		configRepo: configRepo,
-		listener:   listener,
+		configRepo:       configRepo,
+		listener:         listener,
+		changeHistorySvc: changeHistorySvc,
 	}
 }
 
@@ -86,6 +94,22 @@ func (s *ConfigService) CreateConfig(ctx context.Context, config *entity.Config)
 		Action:      "create",
 	})
 
+	// 7. 记录变更历史
+	s.recordChangeHistory(ctx, &entity.ChangeRecord{
+		ConfigID:     config.ID,
+		NamespaceID:  config.NamespaceID,
+		ConfigKey:    config.Key,
+		Environment:  config.Environment,
+		Operation:    entity.OperationCreate,
+		OldValue:     "",
+		NewValue:     config.Value,
+		OldVersion:   0,
+		NewVersion:   config.Version,
+		Operator:     s.getOperator(ctx),
+		OperatorIP:   s.getOperatorIP(ctx),
+		ChangeReason: "创建配置",
+	})
+
 	return nil
 }
 
@@ -121,6 +145,10 @@ func (s *ConfigService) UpdateConfig(ctx context.Context, config *entity.Config)
 		return err
 	}
 
+	// 记录旧值，用于变更历史
+	oldValue := existingConfig.Value
+	oldVersion := existingConfig.Version
+
 	// 5. 使用领域实体的方法更新配置值
 	existingConfig.UpdateValue(config.Value, hash)
 	existingConfig.Description = config.Description
@@ -139,6 +167,22 @@ func (s *ConfigService) UpdateConfig(ctx context.Context, config *entity.Config)
 		ConfigKey:   existingConfig.Key,
 		ConfigID:    existingConfig.ID,
 		Action:      "update",
+	})
+
+	// 8. 记录变更历史
+	s.recordChangeHistory(ctx, &entity.ChangeRecord{
+		ConfigID:     existingConfig.ID,
+		NamespaceID:  existingConfig.NamespaceID,
+		ConfigKey:    existingConfig.Key,
+		Environment:  existingConfig.Environment,
+		Operation:    entity.OperationUpdate,
+		OldValue:     oldValue,
+		NewValue:     existingConfig.Value,
+		OldVersion:   oldVersion,
+		NewVersion:   existingConfig.Version,
+		Operator:     s.getOperator(ctx),
+		OperatorIP:   s.getOperatorIP(ctx),
+		ChangeReason: "更新配置",
 	})
 
 	return nil
@@ -227,6 +271,10 @@ func (s *ConfigService) DeleteConfig(ctx context.Context, configID int) error {
 		return domainErrors.ErrConfigCannotDelete(config.Key)
 	}
 
+	// 记录删除前的值，用于变更历史
+	oldValue := config.Value
+	oldVersion := config.Version
+
 	// 3. 执行软删除
 	if err := s.configRepo.Delete(ctx, configID); err != nil {
 		return err
@@ -238,6 +286,22 @@ func (s *ConfigService) DeleteConfig(ctx context.Context, configID int) error {
 		ConfigKey:   config.Key,
 		ConfigID:    config.ID,
 		Action:      "delete",
+	})
+
+	// 5. 记录变更历史
+	s.recordChangeHistory(ctx, &entity.ChangeRecord{
+		ConfigID:     config.ID,
+		NamespaceID:  config.NamespaceID,
+		ConfigKey:    config.Key,
+		Environment:  config.Environment,
+		Operation:    entity.OperationDelete,
+		OldValue:     oldValue,
+		NewValue:     "",
+		OldVersion:   oldVersion,
+		NewVersion:   0,
+		Operator:     s.getOperator(ctx),
+		OperatorIP:   s.getOperatorIP(ctx),
+		ChangeReason: "删除配置",
 	})
 
 	return nil
@@ -549,4 +613,34 @@ func (s *ConfigService) publishConfigChangeEvent(ctx context.Context, event *lis
 			hlog.Errorf("发布配置变更事件失败: %v, event: %+v", err, event)
 		}
 	}()
+}
+
+// recordChangeHistory 记录配置变更历史
+func (s *ConfigService) recordChangeHistory(ctx context.Context, record *entity.ChangeRecord) {
+	if s.changeHistorySvc == nil {
+		return
+	}
+
+	// 异步保存，不阻塞主流程
+	go func() {
+		if err := s.changeHistorySvc.RecordChange(context.Background(), record); err != nil {
+			hlog.Errorf("记录变更历史失败: %v, record: %+v", err, record)
+		}
+	}()
+}
+
+// getOperator 从 context 中获取操作人
+func (s *ConfigService) getOperator(ctx context.Context) string {
+	if operator, ok := ctx.Value(shareConstants.OperatorKey).(string); ok {
+		return operator
+	}
+	return "system"
+}
+
+// getOperatorIP 从 context 中获取操作人IP
+func (s *ConfigService) getOperatorIP(ctx context.Context) string {
+	if ip, ok := ctx.Value(shareConstants.OperatorIPKey).(string); ok {
+		return ip
+	}
+	return ""
 }

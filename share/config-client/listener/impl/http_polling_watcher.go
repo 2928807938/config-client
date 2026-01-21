@@ -11,6 +11,8 @@ import (
 	"time"
 
 	"config-client/share/config-client/listener"
+
+	"github.com/cloudwego/hertz/pkg/common/hlog"
 )
 
 // HTTPPollingWatcher HTTP长轮询配置监听器
@@ -165,13 +167,18 @@ func (w *HTTPPollingWatcher) pollingLoop() {
 		}
 
 		// 如果没有监听的配置，等待一段时间
-		if len(w.watchKeys) == 0 {
+		w.mu.RLock()
+		hasKeys := len(w.watchKeys) > 0
+		w.mu.RUnlock()
+
+		if !hasKeys {
 			time.Sleep(time.Second)
 			continue
 		}
 
 		// 执行长轮询请求
 		if err := w.doPolling(); err != nil {
+			hlog.Errorf("长轮询请求失败: %v", err)
 			// 出错后等待一段时间再重试
 			select {
 			case <-w.ctx.Done():
@@ -179,6 +186,13 @@ func (w *HTTPPollingWatcher) pollingLoop() {
 			case <-time.After(5 * time.Second):
 				continue
 			}
+		}
+
+		// 成功后短暂间隔再发起下一次请求，避免服务器压力过大
+		select {
+		case <-w.ctx.Done():
+			return
+		case <-time.After(200 * time.Millisecond):
 		}
 	}
 }
@@ -236,15 +250,35 @@ func (w *HTTPPollingWatcher) doPolling() error {
 		return fmt.Errorf("请求失败: status=%d, body=%s", resp.StatusCode, string(body))
 	}
 
-	// 解析响应
-	var pollingResp HTTPPollingResponse
-	if err := json.NewDecoder(resp.Body).Decode(&pollingResp); err != nil {
-		return fmt.Errorf("解析响应失败: %w", err)
+	// 解析响应 - 先读取完整响应体
+	bodyBytes, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return fmt.Errorf("读取响应失败: %w", err)
 	}
 
-	// 处理配置变更
-	if pollingResp.Changed {
-		w.handleConfigChanges(&pollingResp)
+	// 尝试解析为标准响应格式（包含外层 Response 结构）
+	var standardResp struct {
+		Code    int                 `json:"code"`
+		Message string              `json:"message"`
+		Data    HTTPPollingResponse `json:"data"`
+	}
+
+	if err := json.Unmarshal(bodyBytes, &standardResp); err != nil {
+		// 如果失败，尝试直接解析为 HTTPPollingResponse
+		var pollingResp HTTPPollingResponse
+		if err2 := json.Unmarshal(bodyBytes, &pollingResp); err2 != nil {
+			return fmt.Errorf("解析响应失败: %w (原始错误: %v)", err2, err)
+		}
+		// 直接解析成功
+		if pollingResp.Changed {
+			w.handleConfigChanges(&pollingResp)
+		}
+		return nil
+	}
+
+	// 标准格式解析成功
+	if standardResp.Data.Changed {
+		w.handleConfigChanges(&standardResp.Data)
 	}
 
 	return nil
@@ -253,7 +287,11 @@ func (w *HTTPPollingWatcher) doPolling() error {
 // handleConfigChanges 处理配置变更
 func (w *HTTPPollingWatcher) handleConfigChanges(resp *HTTPPollingResponse) {
 	w.mu.RLock()
-	defer w.mu.RUnlock()
+	// 先读取需要的数据
+	eventsToSend := make([]struct {
+		event    *listener.ConfigChangeEvent
+		callback listener.ConfigChangeCallback
+	}, 0, len(resp.Configs))
 
 	for _, config := range resp.Configs {
 		key := w.formatKey(config.NamespaceID, config.ConfigKey)
@@ -268,10 +306,7 @@ func (w *HTTPPollingWatcher) handleConfigChanges(resp *HTTPPollingResponse) {
 			continue
 		}
 
-		// 更新版本号
-		watchKey.Version = config.Version
-
-		// 调用回调
+		// 构建事件
 		event := &listener.ConfigChangeEvent{
 			NamespaceID: config.NamespaceID,
 			ConfigKey:   config.ConfigKey,
@@ -285,8 +320,28 @@ func (w *HTTPPollingWatcher) handleConfigChanges(resp *HTTPPollingResponse) {
 			event.Namespace = watchKey.Namespace
 		}
 
-		// 异步调用回调，避免阻塞
-		go callback(event)
+		eventsToSend = append(eventsToSend, struct {
+			event    *listener.ConfigChangeEvent
+			callback listener.ConfigChangeCallback
+		}{event: event, callback: callback})
+	}
+	w.mu.RUnlock()
+
+	// 更新版本号（需要写锁）
+	if len(eventsToSend) > 0 {
+		w.mu.Lock()
+		for _, config := range resp.Configs {
+			key := w.formatKey(config.NamespaceID, config.ConfigKey)
+			if watchKey, exists := w.watchKeys[key]; exists {
+				watchKey.Version = config.Version
+			}
+		}
+		w.mu.Unlock()
+	}
+
+	// 异步调用回调，避免阻塞
+	for _, item := range eventsToSend {
+		go item.callback(item.event)
 	}
 }
 

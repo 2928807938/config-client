@@ -40,8 +40,8 @@ func (s *LongPollingAppService) WaitForChanges(ctx context.Context, req *request
 		versions[configKey] = item.Version
 	}
 
-	// 2. 调用领域服务等待变更
-	result, err := s.longPollingService.Wait(configKeys, versions)
+	// 2. 调用领域服务等待变更（传递 context）
+	result, err := s.longPollingService.Wait(ctx, configKeys, versions)
 	if err != nil {
 		return nil, err
 	}

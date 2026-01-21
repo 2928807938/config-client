@@ -35,7 +35,8 @@ type LongPollingService struct {
 	configRepo   repository.ConfigRepository // 配置仓储
 	waitRequests map[string][]*WaitRequest   // 配置键 -> 等待请求列表
 	mu           sync.RWMutex                // 读写锁
-	timeout      time.Duration               // 超时时间
+	timeout      time.Duration               // 长轮询超时时间
+	queryTimeout time.Duration               // 数据库查询超时时间
 	ctx          context.Context             // 上下文
 	cancel       context.CancelFunc          // 取消函数
 }
@@ -47,11 +48,16 @@ func NewLongPollingService(
 	timeout time.Duration,
 ) *LongPollingService {
 	ctx, cancel := context.WithCancel(context.Background())
+
+	// 默认查询超时时间为 5 秒
+	queryTimeout := 5 * time.Second
+
 	return &LongPollingService{
 		listener:     listener,
 		configRepo:   configRepo,
 		waitRequests: make(map[string][]*WaitRequest),
 		timeout:      timeout,
+		queryTimeout: queryTimeout,
 		ctx:          ctx,
 		cancel:       cancel,
 	}
@@ -79,10 +85,11 @@ func (s *LongPollingService) Stop() error {
 }
 
 // Wait 等待配置变更
+// ctx: 请求上下文（用于取消等待）
 // configKeys: 配置键列表（格式: "namespaceID:configKey"）
 // versions: 当前版本号映射
 // 返回: 变更结果或超时
-func (s *LongPollingService) Wait(configKeys []string, versions map[string]string) (*WaitResult, error) {
+func (s *LongPollingService) Wait(ctx context.Context, configKeys []string, versions map[string]string) (*WaitResult, error) {
 	// 先检查是否有配置已经变更
 	changed, changedKeys := s.checkVersions(configKeys, versions)
 	if changed {
@@ -120,6 +127,9 @@ func (s *LongPollingService) Wait(configKeys []string, versions map[string]strin
 			ConfigKeys: []string{},
 			Versions:   versions,
 		}, nil
+	case <-ctx.Done():
+		// 客户端取消请求
+		return nil, ctx.Err()
 	case <-s.ctx.Done():
 		return nil, errors.ErrLongPollingServiceStopped()
 	}
@@ -132,7 +142,7 @@ func (s *LongPollingService) PublishChange(ctx context.Context, event *listener.
 
 // GetConfigVersion 获取配置版本号
 func (s *LongPollingService) GetConfigVersion(namespaceID int, configKey string) (string, error) {
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), s.queryTimeout)
 	defer cancel()
 
 	config, err := s.configRepo.FindByNamespaceAndKey(ctx, namespaceID, configKey, "")
