@@ -13,6 +13,9 @@ const (
 // ==================== 环境常量 ====================
 
 const (
+	// EnvDefault 默认环境
+	EnvDefault = "default"
+
 	// EnvDev 开发环境
 	EnvDev = "dev"
 
@@ -31,6 +34,7 @@ const (
 
 // ValidEnvironments 有效的环境列表
 var ValidEnvironments = []string{
+	EnvDefault,
 	EnvDev,
 	EnvTest,
 	EnvUAT,

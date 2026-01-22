@@ -33,6 +33,12 @@ func NewConfigAppService(
 // CreateConfig 创建配置
 func (s *ConfigAppService) CreateConfig(ctx context.Context, req *request.CreateConfigRequest) (*vo.ConfigVO, error) {
 	// 1. 将请求DTO转换为领域实体
+	// 处理 Metadata：如果为空字符串，使用默认值 "{}"
+	metadata := req.Metadata
+	if metadata == "" {
+		metadata = "{}"
+	}
+
 	config := &entity.Config{
 		NamespaceID: req.NamespaceID,
 		Key:         req.Key,
@@ -41,7 +47,7 @@ func (s *ConfigAppService) CreateConfig(ctx context.Context, req *request.Create
 		ValueType:   req.ValueType,
 		Environment: req.Environment,
 		Description: req.Description,
-		Metadata:    req.Metadata,
+		Metadata:    metadata,
 	}
 	// 设置审计字段
 	config.CreatedBy = req.CreatedBy
@@ -65,6 +71,16 @@ func (s *ConfigAppService) UpdateConfig(ctx context.Context, configID int, req *
 	}
 
 	// 2. 构建更新实体（保留原有的关键字段）
+	// 处理 Metadata：如果为空字符串，保留原值或使用默认值 "{}"
+	metadata := req.Metadata
+	if metadata == "" {
+		if existingConfig.Metadata != "" {
+			metadata = existingConfig.Metadata
+		} else {
+			metadata = "{}"
+		}
+	}
+
 	config := &entity.Config{
 		NamespaceID: existingConfig.NamespaceID,
 		Key:         existingConfig.Key,
@@ -73,7 +89,7 @@ func (s *ConfigAppService) UpdateConfig(ctx context.Context, configID int, req *
 		GroupName:   req.GroupName,
 		ValueType:   req.ValueType,
 		Description: req.Description,
-		Metadata:    req.Metadata,
+		Metadata:    metadata,
 		IsActive:    boolValue(req.IsActive, existingConfig.IsActive),
 		IsReleased:  boolValue(req.IsReleased, existingConfig.IsReleased),
 	}
