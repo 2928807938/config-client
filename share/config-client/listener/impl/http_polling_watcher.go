@@ -3,10 +3,13 @@ package impl
 import (
 	"bytes"
 	"context"
+	"crypto/rand"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
+	"os"
 	"sync"
 	"time"
 
@@ -17,28 +20,35 @@ import (
 
 // HTTPPollingWatcher HTTP长轮询配置监听器
 type HTTPPollingWatcher struct {
-	serverURL  string                                   // 配置中心服务地址
-	httpClient *http.Client                             // HTTP客户端
-	timeout    time.Duration                            // 长轮询超时时间
-	mu         sync.RWMutex                             // 读写锁
-	watchKeys  map[string]*listener.WatchKey            // key -> WatchKey (key格式: "namespaceID:configKey")
-	callbacks  map[string]listener.ConfigChangeCallback // key -> callback
-	running    bool                                     // 是否正在运行
-	ctx        context.Context                          // 上下文
-	cancel     context.CancelFunc                       // 取消函数
-	wg         sync.WaitGroup                           // 等待组
+	serverURL      string                                   // 配置中心服务地址
+	httpClient     *http.Client                             // HTTP客户端
+	timeout        time.Duration                            // 长轮询超时时间
+	clientID       string                                   // 客户端唯一标识
+	clientIP       string                                   // 客户端IP地址
+	clientHostname string                                   // 客户端主机名
+	mu             sync.RWMutex                             // 读写锁
+	watchKeys      map[string]*listener.WatchKey            // key -> WatchKey (key格式: "namespaceID:configKey")
+	callbacks      map[string]listener.ConfigChangeCallback // key -> callback
+	running        bool                                     // 是否正在运行
+	ctx            context.Context                          // 上下文
+	cancel         context.CancelFunc                       // 取消函数
+	wg             sync.WaitGroup                           // 等待组
 }
 
 // HTTPPollingRequest 长轮询请求
 type HTTPPollingRequest struct {
-	ConfigKeys []ConfigKeyVersion `json:"config_keys"`
+	ClientID       string             `json:"client_id"`       // 客户端唯一标识
+	ClientIP       string             `json:"client_ip"`       // 客户端IP地址
+	ClientHostname string             `json:"client_hostname"` // 客户端主机名
+	ConfigKeys     []ConfigKeyVersion `json:"config_keys"`     // 配置键列表
 }
 
 // ConfigKeyVersion 配置键及其版本
 type ConfigKeyVersion struct {
-	NamespaceID int    `json:"namespace_id"`
-	ConfigKey   string `json:"config_key"`
-	Version     string `json:"version"`
+	NamespaceID int    `json:"namespace_id"` // 命名空间ID
+	Environment string `json:"environment"`  // 环境
+	ConfigKey   string `json:"config_key"`   // 配置键
+	Version     string `json:"version"`      // 配置版本
 }
 
 // HTTPPollingResponse 长轮询响应
@@ -59,8 +69,17 @@ type ConfigChangeDetail struct {
 
 // NewHTTPPollingWatcher 创建HTTP长轮询监听器
 func NewHTTPPollingWatcher(serverURL string, timeout time.Duration) *HTTPPollingWatcher {
+	// 生成唯一的客户端ID
+	clientID := generateClientID()
+
+	// 获取主机名
+	hostname, _ := os.Hostname()
+
 	return &HTTPPollingWatcher{
-		serverURL: serverURL,
+		serverURL:      serverURL,
+		clientID:       clientID,
+		clientIP:       "", // IP地址由服务端自动获取
+		clientHostname: hostname,
 		httpClient: &http.Client{
 			Timeout: timeout + 10*time.Second, // 比长轮询超时时间多10秒
 		},
@@ -69,6 +88,23 @@ func NewHTTPPollingWatcher(serverURL string, timeout time.Duration) *HTTPPolling
 		callbacks: make(map[string]listener.ConfigChangeCallback),
 		running:   false,
 	}
+}
+
+// generateClientID 生成唯一的客户端ID
+func generateClientID() string {
+	// 使用主机名+随机字符串
+	hostname, _ := os.Hostname()
+	if hostname == "" {
+		hostname = "unknown"
+	}
+
+	// 生成8字节随机数
+	b := make([]byte, 8)
+	rand.Read(b)
+	randomStr := hex.EncodeToString(b)
+
+	// 格式: hostname-timestamp-random
+	return fmt.Sprintf("%s-%d-%s", hostname, time.Now().Unix(), randomStr)
 }
 
 // Start 启动监听器
@@ -216,13 +252,17 @@ func (w *HTTPPollingWatcher) doPolling() error {
 	for i, key := range keys {
 		configKeys[i] = ConfigKeyVersion{
 			NamespaceID: key.NamespaceID,
+			Environment: "default", // 使用默认环境
 			ConfigKey:   key.Key,
 			Version:     key.Version,
 		}
 	}
 
 	reqBody := HTTPPollingRequest{
-		ConfigKeys: configKeys,
+		ClientID:       w.clientID,
+		ClientIP:       w.clientIP,
+		ClientHostname: w.clientHostname,
+		ConfigKeys:     configKeys,
 	}
 
 	jsonData, err := json.Marshal(reqBody)

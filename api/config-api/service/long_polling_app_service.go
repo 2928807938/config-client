@@ -106,9 +106,15 @@ func (s *LongPollingAppService) getConfigDetails(
 		}
 
 		// 从数据库获取完整配置信息
-		config, err := s.configRepo.FindByNamespaceAndKey(context.Background(), item.NamespaceID, item.ConfigKey, "")
+		// 使用配置项中的environment，如果为空则使用默认值
+		environment := item.Environment
+		if environment == "" {
+			environment = "default"
+		}
+
+		config, err := s.configRepo.FindByNamespaceAndKey(context.Background(), item.NamespaceID, item.ConfigKey, environment)
 		if err != nil {
-			hlog.Errorf("获取配置详情失败: namespaceID=%d, key=%s, error=%v", item.NamespaceID, item.ConfigKey, err)
+			hlog.Errorf("获取配置详情失败: namespaceID=%d, key=%s, environment=%s, error=%v", item.NamespaceID, item.ConfigKey, environment, err)
 			// 即使获取失败，也返回基础信息
 			details = append(details, vo.ConfigChangeDetail{
 				NamespaceID: item.NamespaceID,

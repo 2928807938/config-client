@@ -146,7 +146,7 @@ func (m *SubscriptionManager) Subscribe(ctx context.Context, req *SubscribeReque
 	versionToUse := m.determineVersionForClient(ctx, req)
 
 	// 4. 检查配置是否已有变更
-	changed, changedKey, newVersion := m.checkVersionChanges(req.ConfigKeys, req.Versions, versionToUse)
+	changed, changedKey, newVersion := m.checkVersionChanges(req.ConfigKeys, req.Versions, versionToUse, req.Environment)
 	if changed {
 		// 配置已变更，立即返回
 		hlog.Infof("配置已变更: %s, 立即返回", changedKey)
@@ -287,8 +287,14 @@ func (m *SubscriptionManager) handleConfigChangeEvent(event *listener.ConfigChan
 		return
 	}
 
+	// 获取第一个订阅者的环境（同一配置的所有订阅者应该在相同环境）
+	environment := "default"
+	if len(subscribers) > 0 && subscribers[0].Environment != "" {
+		environment = subscribers[0].Environment
+	}
+
 	// 获取最新版本
-	newVersion, err := m.getConfigVersion(event.NamespaceID, event.ConfigKey)
+	newVersion, err := m.getConfigVersion(event.NamespaceID, event.ConfigKey, environment)
 	if err != nil {
 		hlog.Errorf("获取配置版本失败: %s, error: %v", configKey, err)
 		return
@@ -393,7 +399,7 @@ func (m *SubscriptionManager) getOrCreateSubscription(ctx context.Context, req *
 
 // checkVersionChanges 检查版本是否有变更
 // 返回: 是否有变更, 变更的配置键, 新版本
-func (m *SubscriptionManager) checkVersionChanges(configKeys []string, clientVersions map[string]string, canaryVersions map[string]string) (bool, string, string) {
+func (m *SubscriptionManager) checkVersionChanges(configKeys []string, clientVersions map[string]string, canaryVersions map[string]string, environment string) (bool, string, string) {
 	for _, configKey := range configKeys {
 		clientVersion := clientVersions[configKey]
 
@@ -417,7 +423,7 @@ func (m *SubscriptionManager) checkVersionChanges(configKeys []string, clientVer
 		}
 
 		// 获取服务端版本
-		serverVersion, err := m.getConfigVersion(namespaceID, key)
+		serverVersion, err := m.getConfigVersion(namespaceID, key, environment)
 		if err != nil {
 			hlog.Errorf("获取配置版本失败: %s, error: %v", configKey, err)
 			continue
@@ -433,16 +439,21 @@ func (m *SubscriptionManager) checkVersionChanges(configKeys []string, clientVer
 }
 
 // getConfigVersion 获取配置版本
-func (m *SubscriptionManager) getConfigVersion(namespaceID int, configKey string) (string, error) {
+func (m *SubscriptionManager) getConfigVersion(namespaceID int, configKey string, environment string) (string, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
-	config, err := m.configRepo.FindByNamespaceAndKey(ctx, namespaceID, configKey, "")
+	// 如果environment为空，使用默认值
+	if environment == "" {
+		environment = "default"
+	}
+
+	config, err := m.configRepo.FindByNamespaceAndKey(ctx, namespaceID, configKey, environment)
 	if err != nil {
 		return "", err
 	}
 	if config == nil {
-		return "", fmt.Errorf("配置不存在: %s", configKey)
+		return "", fmt.Errorf("配置不存在: %s (environment=%s)", configKey, environment)
 	}
 
 	return ComputeVersion(config.Value), nil
