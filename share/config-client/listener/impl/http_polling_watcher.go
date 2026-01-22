@@ -153,6 +153,10 @@ func (w *HTTPPollingWatcher) Watch(keys []*listener.WatchKey, callback listener.
 
 	for _, key := range keys {
 		k := w.formatKey(key.NamespaceID, key.Key)
+		// 如果已经存在监听,保留原有的版本号(避免重复触发)
+		if existingKey, exists := w.watchKeys[k]; exists && key.Version == "" {
+			key.Version = existingKey.Version
+		}
 		w.watchKeys[k] = key
 		w.callbacks[k] = callback
 	}
@@ -256,6 +260,7 @@ func (w *HTTPPollingWatcher) doPolling() error {
 			ConfigKey:   key.Key,
 			Version:     key.Version,
 		}
+		hlog.Infof("[客户端发送] 配置键: %d:%s, 版本号: %s", key.NamespaceID, key.Key, key.Version)
 	}
 
 	reqBody := HTTPPollingRequest{

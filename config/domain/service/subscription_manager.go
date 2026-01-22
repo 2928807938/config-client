@@ -407,6 +407,7 @@ func (m *SubscriptionManager) checkVersionChanges(configKeys []string, clientVer
 		if canaryVersions != nil {
 			if canaryVersion, exists := canaryVersions[configKey]; exists {
 				if clientVersion != canaryVersion {
+					hlog.Infof("[版本比较] 灰度版本不同: configKey=%s, clientVersion=%s, canaryVersion=%s", configKey, clientVersion, canaryVersion)
 					return true, configKey, canaryVersion
 				}
 				continue
@@ -428,6 +429,8 @@ func (m *SubscriptionManager) checkVersionChanges(configKeys []string, clientVer
 			hlog.Errorf("获取配置版本失败: %s, error: %v", configKey, err)
 			continue
 		}
+
+		hlog.Infof("[版本比较] configKey=%s, clientVersion=%s, serverVersion=%s, 是否相同=%v", configKey, clientVersion, serverVersion, clientVersion == serverVersion)
 
 		// 比较版本
 		if clientVersion != serverVersion {

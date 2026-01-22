@@ -21,6 +21,7 @@ type httpWatcher struct {
 	underlying  *impl.HTTPPollingWatcher // 底层 HTTP 长轮询监听器
 	namespaceID int
 	namespace   string
+	cache       *ConfigCache // 引用客户端的缓存,用于获取版本号
 }
 
 // redisWatcher Redis 订阅监听器包装
@@ -31,7 +32,7 @@ type redisWatcher struct {
 }
 
 // createWatcherFromOptions 根据选项创建监听器
-func createWatcherFromOptions(opts *Options) (Watcher, error) {
+func createWatcherFromOptions(opts *Options, cache *ConfigCache) (Watcher, error) {
 	switch opts.WatcherType {
 	case WatcherTypeHTTP:
 		if opts.ServerURL == "" {
@@ -43,6 +44,7 @@ func createWatcherFromOptions(opts *Options) (Watcher, error) {
 			underlying:  underlying,
 			namespaceID: opts.NamespaceID,
 			namespace:   opts.Namespace,
+			cache:       cache, // 传递缓存引用
 		}, nil
 
 	case WatcherTypeRedis:
@@ -77,11 +79,17 @@ func (w *httpWatcher) Watch(keys []string, callback func(key, value, version str
 	// 将简化的 key 列表转换为底层的 WatchKey 列表
 	watchKeys := make([]*listener.WatchKey, len(keys))
 	for i, key := range keys {
+		version := ""
+		// 从缓存中获取当前版本号(如果有)
+		if w.cache != nil {
+			version = w.cache.GetVersion(key)
+		}
+
 		watchKeys[i] = &listener.WatchKey{
 			NamespaceID: w.namespaceID,
 			Namespace:   w.namespace,
 			Key:         key,
-			Version:     "", // 初始版本为空
+			Version:     version, // 使用缓存中的版本
 		}
 	}
 

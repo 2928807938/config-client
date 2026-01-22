@@ -2,11 +2,12 @@ package configsdk
 
 import (
 	"context"
+	"crypto/md5"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
-	"strconv"
 	"sync"
 	"time"
 )
@@ -52,6 +53,16 @@ func (c *ConfigCache) Get(key string) (string, bool) {
 		return "", false
 	}
 	return item.Value, true
+}
+
+func (c *ConfigCache) GetVersion(key string) string {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	item, exists := c.items[key]
+	if !exists {
+		return ""
+	}
+	return item.Version
 }
 
 func (c *ConfigCache) GetAll() map[string]string {
@@ -283,7 +294,7 @@ func New(opts ...Option) (*Client, error) {
 
 // createWatcher 创建底层监听器
 func (c *Client) createWatcher() error {
-	watcher, err := createWatcherFromOptions(c.opts)
+	watcher, err := createWatcherFromOptions(c.opts, c.cache)
 	if err != nil {
 		return err
 	}
@@ -313,7 +324,7 @@ func (c *Client) fetchAllConfigs() error {
 			Version string
 		}{
 			Value:   cfg.Value,
-			Version: strconv.Itoa(cfg.Version),
+			Version: computeVersion(cfg.Value), // 使用MD5哈希作为版本号
 		}
 	}
 
@@ -378,9 +389,9 @@ func (c *Client) Get(key string) (string, error) {
 		return "", fmt.Errorf("获取配置失败: %w", err)
 	}
 
-	// 更新缓存
+	// 更新缓存(使用MD5作为版本号)
 	if c.opts.EnableCache {
-		c.cache.Set(key, config.Value, strconv.Itoa(config.Version))
+		c.cache.Set(key, config.Value, computeVersion(config.Value))
 	}
 
 	return config.Value, nil
@@ -437,13 +448,26 @@ func (c *Client) Watch(key string, callback ChangeCallback) error {
 
 // GetAndWatch 获取配置并监听变更
 func (c *Client) GetAndWatch(key string, callback ChangeCallback) error {
-	value, err := c.Get(key)
-	if err != nil {
-		value = ""
+	// 先从服务器获取最新配置和版本
+	config, err := c.httpClient.GetConfigByKey(c.opts.NamespaceID, key)
+	value := ""
+
+	if err == nil && config != nil {
+		value = config.Value
+
+		// 更新缓存(使用MD5作为版本号)
+		if c.opts.EnableCache {
+			c.cache.Set(key, value, computeVersion(value))
+		}
+	} else {
+		// 获取失败,尝试从缓存或降级配置获取
+		value, _ = c.Get(key)
 	}
 
+	// 立即调用一次回调
 	callback(key, value)
 
+	// 注册监听
 	return c.Watch(key, callback)
 }
 
@@ -483,7 +507,7 @@ func (c *Client) Refresh(key string) error {
 	}
 
 	if c.opts.EnableCache {
-		c.cache.Set(key, config.Value, strconv.Itoa(config.Version))
+		c.cache.Set(key, config.Value, computeVersion(config.Value))
 	}
 
 	return nil
@@ -515,4 +539,10 @@ func (c *Client) IsRunning() bool {
 // GetOptions 获取配置选项
 func (c *Client) GetOptions() *Options {
 	return c.opts
+}
+
+// computeVersion 计算配置值的MD5版本号
+func computeVersion(content string) string {
+	hash := md5.Sum([]byte(content))
+	return hex.EncodeToString(hash[:])
 }
