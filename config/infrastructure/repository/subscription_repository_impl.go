@@ -8,6 +8,7 @@ import (
 	"config-client/config/domain/repository"
 	"config-client/config/infrastructure/converter"
 	infraEntity "config-client/config/infrastructure/entity"
+	shareRepo "config-client/share/repository"
 	"config-client/share/repository/queryutil"
 
 	"gorm.io/gorm"
@@ -116,6 +117,96 @@ func (r *SubscriptionRepositoryImpl) FindAllActiveSubscriptions(ctx context.Cont
 	return r.converter.ToEntityList(pos), nil
 }
 
+// Query 根据查询参数分页查询订阅
+func (r *SubscriptionRepositoryImpl) Query(ctx context.Context, params *repository.SubscriptionQueryParams) (*shareRepo.PageResult[*entity.Subscription], error) {
+	db := r.db.WithContext(ctx)
+
+	// 应用查询条件
+	if params.NamespaceID != nil {
+		db = queryutil.WhereEq(db, r.fields.Get("NamespaceID").GetColumnName(), *params.NamespaceID)
+	}
+	if params.Environment != nil && *params.Environment != "" {
+		db = queryutil.WhereEq(db, r.fields.Get("Environment").GetColumnName(), *params.Environment)
+	}
+	if params.ClientID != nil && *params.ClientID != "" {
+		db = queryutil.WhereLike(db, r.fields.Get("ClientID").GetColumnName(), "%"+*params.ClientID+"%")
+	}
+	if params.IsActive != nil {
+		db = queryutil.WhereEq(db, r.fields.Get("IsActive").GetColumnName(), *params.IsActive)
+	}
+
+	// 统计总数
+	var total int64
+	if err := db.Model(&infraEntity.SubscriptionPO{}).Count(&total).Error; err != nil {
+		return nil, err
+	}
+
+	// 应用排序
+	if params.OrderBy != "" {
+		db = db.Order(params.OrderBy)
+	} else {
+		db = queryutil.OrderByDesc(db, r.fields.Get("SubscribedAt").GetColumnName())
+	}
+
+	// 应用分页
+	page := params.Page
+	size := params.Size
+	if page <= 0 {
+		page = 1
+	}
+	if size <= 0 {
+		size = 20
+	}
+	offset := (page - 1) * size
+	db = db.Offset(offset).Limit(size)
+
+	// 查询数据
+	var pos []*infraEntity.SubscriptionPO
+	if err := db.Find(&pos).Error; err != nil {
+		return nil, err
+	}
+
+	entities := r.converter.ToEntityList(pos)
+	return shareRepo.NewPageResult(entities, total, page, size), nil
+}
+
+// CountAll 统计订阅总数
+func (r *SubscriptionRepositoryImpl) CountAll(ctx context.Context) (int64, error) {
+	var count int64
+	db := r.db.WithContext(ctx).Model(&infraEntity.SubscriptionPO{})
+	if err := db.Count(&count).Error; err != nil {
+		return 0, err
+	}
+	return count, nil
+}
+
+// CountByActive 按是否激活统计订阅数量
+func (r *SubscriptionRepositoryImpl) CountByActive(ctx context.Context, isActive bool) (int64, error) {
+	var count int64
+	db := r.db.WithContext(ctx).Model(&infraEntity.SubscriptionPO{})
+	db = queryutil.WhereEq(db, r.fields.Get("IsActive").GetColumnName(), isActive)
+	if err := db.Count(&count).Error; err != nil {
+		return 0, err
+	}
+	return count, nil
+}
+
+// CountExpired 统计过期订阅数量（仅统计激活状态）
+func (r *SubscriptionRepositoryImpl) CountExpired(ctx context.Context, expireTime time.Time) (int64, error) {
+	var count int64
+	db := r.db.WithContext(ctx).Model(&infraEntity.SubscriptionPO{})
+	db = queryutil.WhereEq(db, r.fields.Get("IsActive").GetColumnName(), true)
+	heartbeatCol := r.fields.Get("LastHeartbeatAt").GetColumnName()
+	db = db.Where(
+		"("+heartbeatCol+" IS NULL OR "+heartbeatCol+" < ?)",
+		expireTime,
+	)
+	if err := db.Count(&count).Error; err != nil {
+		return 0, err
+	}
+	return count, nil
+}
+
 // UpdateHeartbeat 更新心跳时间
 func (r *SubscriptionRepositoryImpl) UpdateHeartbeat(ctx context.Context, id int) error {
 	now := time.Now()
@@ -181,3 +272,6 @@ func (r *SubscriptionRepositoryImpl) CleanExpiredSubscriptions(ctx context.Conte
 func (r *SubscriptionRepositoryImpl) Delete(ctx context.Context, id int) error {
 	return r.db.WithContext(ctx).Delete(&infraEntity.SubscriptionPO{}, id).Error
 }
+
+// 确保实现了接口
+var _ repository.SubscriptionRepository = (*SubscriptionRepositoryImpl)(nil)

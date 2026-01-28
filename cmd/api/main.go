@@ -406,6 +406,10 @@ func registerRoutes() {
 	// 注册发布管理路由
 	registerReleaseRoutes()
 	hlog.Info("发布管理路由注册成功")
+
+	// 注册订阅管理路由
+	registerSubscriptionRoutes()
+	hlog.Info("订阅管理路由注册成功")
 }
 
 // registerConfigRoutes 注册配置管理路由
@@ -585,6 +589,39 @@ func registerReleaseRoutes() {
 			releases.GET("/latest", releaseHandler.GetLatestPublishedRelease) // 获取最新已发布版本
 			releases.GET("/list", releaseHandler.ListReleasesByNamespace)     // 查询命名空间下的所有版本
 			releases.POST("/compare", releaseHandler.CompareReleases)         // 对比两个版本
+		}
+	}
+}
+
+// registerSubscriptionRoutes 注册订阅管理路由
+func registerSubscriptionRoutes() {
+	// 初始化依赖层级：Repository -> AppService -> Handler
+
+	// 1. 创建仓储层实例
+	subscriptionRepo := infraRepository.NewSubscriptionRepository(db)
+
+	// 2. 创建转换器实例
+	subscriptionConverter := converter.NewSubscriptionConverter()
+
+	// 3. 创建应用服务实例
+	subscriptionAppService := service.NewSubscriptionAppService(
+		subscriptionRepo,
+		subscriptionManager,
+		systemConfigService,
+		subscriptionConverter,
+	)
+
+	// 4. 创建HTTP处理器实例
+	subscriptionHandler := configHttp.NewSubscriptionHandler(subscriptionAppService)
+
+	// 5. 注册路由
+	api := hertzH.Group("/api/v1")
+	{
+		subscriptions := api.Group("/subscriptions")
+		{
+			subscriptions.GET("", subscriptionHandler.QuerySubscriptions)                 // 分页查询订阅
+			subscriptions.POST("/deactivate", subscriptionHandler.DeactivateSubscription) // 停用订阅
+			subscriptions.GET("/statistics", subscriptionHandler.GetStatistics)           // 订阅统计
 		}
 	}
 }

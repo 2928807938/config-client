@@ -5,7 +5,19 @@ import (
 	"time"
 
 	"config-client/config/domain/entity"
+	"config-client/share/repository"
 )
+
+// SubscriptionQueryParams 订阅查询参数
+type SubscriptionQueryParams struct {
+	NamespaceID *int
+	Environment *string
+	ClientID    *string
+	IsActive    *bool
+	Page        int
+	Size        int
+	OrderBy     string
+}
 
 // SubscriptionRepository 订阅仓储接口
 type SubscriptionRepository interface {
@@ -33,6 +45,18 @@ type SubscriptionRepository interface {
 
 	// FindAllActiveSubscriptions 查询所有活跃订阅
 	FindAllActiveSubscriptions(ctx context.Context) ([]*entity.Subscription, error)
+
+	// Query 根据查询参数分页查询订阅
+	Query(ctx context.Context, params *SubscriptionQueryParams) (*repository.PageResult[*entity.Subscription], error)
+
+	// CountAll 统计订阅总数
+	CountAll(ctx context.Context) (int64, error)
+
+	// CountByActive 按是否激活统计订阅数量
+	CountByActive(ctx context.Context, isActive bool) (int64, error)
+
+	// CountExpired 统计过期订阅数量（仅统计激活状态）
+	CountExpired(ctx context.Context, expireTime time.Time) (int64, error)
 
 	// UpdateHeartbeat 更新心跳时间
 	// id: 订阅ID
